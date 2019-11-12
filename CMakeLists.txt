@@ -32,3 +32,7 @@ target_link_libraries(csg_test ${PROJECT_LINK_LIBS})
 add_executable(aabb_test src/aabb_test.cpp)
 target_link_libraries(aabb_test ${PROJECT_LINK_LIBS})
 
+# triangle intersection test
+add_executable(intersection_test src/intersection_test.cpp)
+target_link_libraries(intersection_test ${PROJECT_LINK_LIBS})
+

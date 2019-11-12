@@ -8,5 +8,13 @@
 namespace CSG
 {
 
+enum TriTriIntersectionType
+{
+    kPointPoint,
+    kPointEdge,
+    kEdgeEdge
+};
+
+
 
 } //namespace CSG

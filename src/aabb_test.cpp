@@ -25,4 +25,6 @@ main(int argc, char *argv[])
    std::cout << "Building AABB tree" << std::endl;
    AABBTree tree = input.createAABBTree();
    std::cout << " ..done" << std::endl;
+
+   std::vector<std::pair<uint32_t, uint32_t>> ix = tree.intersect(tree);
 }
