@@ -45,9 +45,9 @@ uint32_t TriMesh::loadOBJ(const std::string& path)
    }
 
    std::vector<uint32_t> vertexIndices, uvIndices, normalIndices;
-   std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>> temp_vertices;
-   std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>> temp_normals;
-   std::vector<Eigen::Vector2f, Eigen::aligned_allocator<Eigen::Vector2f>> temp_uvs;
+   std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> temp_vertices;
+   std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> temp_normals;
+   std::vector<Eigen::Vector2d, Eigen::aligned_allocator<Eigen::Vector2d>> temp_uvs;
 
    std::string in_line;
    while (std::getline (file, in_line))
@@ -61,7 +61,7 @@ uint32_t TriMesh::loadOBJ(const std::string& path)
 
       if ((results[0] == "v") && results.size() == 4)
       {
-         Eigen::Vector3f vertex;
+         Eigen::Vector3d vertex;
          for (int ii=0; ii<3; ++ii)
             vertex[ii] = strtof(results[ii+1].c_str(), NULL);
          temp_vertices.push_back(vertex);
@@ -69,7 +69,7 @@ uint32_t TriMesh::loadOBJ(const std::string& path)
 
       else if ((results[0] == "vt") && results.size() == 3)
       {
-         Eigen::Vector2f uv;
+         Eigen::Vector2d uv;
          for (int ii=0; ii<2; ++ii)
             uv[ii] = strtof(results[ii+1].c_str(), NULL);
          temp_uvs.push_back(uv);
@@ -77,7 +77,7 @@ uint32_t TriMesh::loadOBJ(const std::string& path)
 
       else if ((results[0] == "vn") && results.size() == 4)
       {
-         Eigen::Vector3f normal;
+         Eigen::Vector3d normal;
          for (int ii=0; ii<3; ++ii)
             normal[ii] = strtof(results[ii+1].c_str(), NULL);
          temp_normals.push_back(normal);

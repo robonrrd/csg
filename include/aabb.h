@@ -125,7 +125,7 @@ class AABBTree
    void insertAABB(uint32_t, const AABB& aabb);
 
    // Return the number of objects stored in the tree.
-   uint32_t numObjects();
+   const uint32_t numObjects() const;
 
    //! Remove an object from the tree.
    void removeObject(uint32_t index);
@@ -149,17 +149,21 @@ class AABBTree
 
    // Query the tree to find candidate intersections for an object (i.e. does
    // the AABB of this object intersect any of its neighbors?
-   std::vector<uint32_t> query(uint32_t index);
+   std::vector<uint32_t> query(uint32_t index) const;
 
    // Query the tree to find candidate interactions for a given AABB, ignoring
    // intersections with object 'index'
-   std::vector<uint32_t> query(uint32_t index, const AABB& aabb);
+   std::vector<uint32_t> query(uint32_t index, const AABB& aabb) const;
 
    // Query the tree to find candidate interactions for an AABB.
-   std::vector<uint32_t> query(const AABB& aabb);
+   std::vector<uint32_t> query(const AABB& aabb) const;
+
+   // Intersect this AABB with a second, returning a list of pairs of
+   // box intersections
+   std::vector< std::pair<uint32_t, uint32_t> > intersect(const AABBTree& tree);
 
    // Get the object's AABB.
-   const AABB& getAABB(uint32_t index);
+   const AABB& getAABB(uint32_t index) const;
 
    // Get the height of the tree.
    uint32_t getHeight() const;
@@ -233,5 +237,8 @@ class AABBTree
    // Assert that the sub-tree (with root 'root_index') has valid metrics.
    void validateMetrics(uint32_t root_index) const;
 };
+
+std::vector< std::pair<uint32_t, uint32_t> > intersectAABBTrees(const AABBTree& treeA,
+                                                                const AABBTree& treeB);
 
 

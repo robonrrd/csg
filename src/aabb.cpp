@@ -1,9 +1,11 @@
+// GNU LESSER GENERAL PUBLIC LICENSE Version 2.1, February 1999
+
 #include "aabb.h"
+
 
 AABB::AABB()
 {
 }
-
 
 AABB::AABB(const Eigen::Vector3d& lower, const Eigen::Vector3d& upper)
     : lowerBound(lower)
@@ -278,7 +280,7 @@ void AABBTree::insertAABB(uint32_t index, const Eigen::Vector3d& lowerBound,
     nodes[node].origin = index;
 }
 
-uint32_t AABBTree::numObjects()
+const uint32_t AABBTree::numObjects() const
 {
     return externalMap.size();
 }
@@ -412,7 +414,7 @@ bool AABBTree::updateAABB(uint32_t index, const Eigen::Vector3d& lowerBound,
     return true;
 }
 
-std::vector<uint32_t> AABBTree::query(uint32_t index)
+std::vector<uint32_t> AABBTree::query(uint32_t index) const
 {
     // Make sure that this is a valid object.
     if (externalMap.count(index) == 0)
@@ -424,7 +426,7 @@ std::vector<uint32_t> AABBTree::query(uint32_t index)
     return query(index, nodes[externalMap.find(index)->second].aabb);
 }
 
-std::vector<uint32_t> AABBTree::query(uint32_t index, const AABB& aabb)
+std::vector<uint32_t> AABBTree::query(uint32_t index, const AABB& aabb) const
 {
     std::vector<uint32_t> stack;
     stack.reserve(256);
@@ -466,7 +468,7 @@ std::vector<uint32_t> AABBTree::query(uint32_t index, const AABB& aabb)
     return indices;
 }
 
-std::vector<uint32_t> AABBTree::query(const AABB& aabb)
+std::vector<uint32_t> AABBTree::query(const AABB& aabb) const
 {
     // Make sure the tree isn't empty.
     if (externalMap.size() == 0)
@@ -478,9 +480,17 @@ std::vector<uint32_t> AABBTree::query(const AABB& aabb)
     return query(std::numeric_limits<uint32_t>::max(), aabb);
 }
 
-const AABB& AABBTree::getAABB(uint32_t index)
+const AABB& AABBTree::getAABB(uint32_t index) const
 {
-    return nodes[externalMap[index]].aabb;
+    auto it = externalMap.find(index);
+    if (it == externalMap.end())
+    {
+        throw std::invalid_argument("[ERROR]: Invalid particle index!");
+    }
+
+    // Extract the node index.
+    return nodes[it->second].aabb;
+    // return nodes[externalMap[index]].aabb;
 }
 
 void AABBTree::insertLeaf(uint32_t leaf)
@@ -992,4 +1002,21 @@ void AABBTree::validateMetrics(uint32_t node) const
 
     validateMetrics(left);
     validateMetrics(right);
+}
+
+
+
+std::vector<std::pair<uint32_t, uint32_t>> AABBTree::intersect(const AABBTree& tree)
+{
+    std::vector<std::pair<uint32_t, uint32_t>> intersections;
+    for (uint32_t ii=0; ii<numObjects(); ++ii)
+    {
+        std::vector<uint32_t> interx = tree.query(getAABB(ii));
+        for (const auto& ix : interx)
+            intersections.push_back(std::make_pair(ii, ix));
+    }
+
+    std::cout << intersections.size() << " potential intersections found"
+              << std::endl;
+    return intersections;
 }
