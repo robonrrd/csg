@@ -19,4 +19,8 @@ main(int argc, char *argv[])
    TriMesh input;
    const std::string path(argv[1]);
    input.loadOBJ( path );
+
+   std::cout << "Building AABB tree" << std::endl;
+   AABBTree tree = input.createAABBTree();
+   std::cout << " ..done" << std::endl;
 }

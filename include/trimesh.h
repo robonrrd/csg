@@ -26,8 +26,8 @@ public:
          os << "intersection. ";
          if (ix.coplanar)
             os << "coplanar. ";
-         os << "p0:" << ix.p0[0] << ", "<< ix.p0[1] << ", "<< ix.p0[2] << "  "
-            << "p1:" << ix.p1[0] << ", "<< ix.p1[1] << ", "<< ix.p1[2] << "  ";
+         os << "p0:" << ix.p0[0] << ", " << ix.p0[1] << ", " << ix.p0[2] << "  "
+            << "p1:" << ix.p1[0] << ", " << ix.p1[1] << ", " << ix.p1[2] << "  ";
       }
       return os;
    }
