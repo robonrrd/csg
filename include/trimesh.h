@@ -12,33 +12,6 @@ namespace CSG
 {
 
 
-class TriangleIntersection
-{
-public:
-   friend std::ostream& operator<<(std::ostream& os, const TriangleIntersection& ix)
-   {
-      if (!ix.intersect)
-      {
-         os << "no intersection";
-      }
-      else
-      {
-         os << "intersection. ";
-         if (ix.coplanar)
-            os << "coplanar. ";
-         os << "p0:" << ix.p0[0] << ", " << ix.p0[1] << ", " << ix.p0[2] << "  "
-            << "p1:" << ix.p1[0] << ", " << ix.p1[1] << ", " << ix.p1[2] << "  ";
-      }
-      return os;
-   }
-
-   bool intersect;     // is there an intersection at all?
-   bool coplanar;      // are the triangles coplanar
-   Eigen::Vector3d p0; // the two points defining the line of intersection
-   Eigen::Vector3d p1;
-};
-
-
 //> Triangle holds information for a single triangle, including indices into
 //> its owning TriMesh
 class Triangle
@@ -47,9 +20,7 @@ public:
    static constexpr int32_t NO_ENTRY = -1;
    friend std::ostream& operator<<(std::ostream& os, const Triangle& tri);
 
-   TriangleIntersection intersect(
-      const Triangle& tri,
-      const std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>& vertices);
+   Triangle();
 
    int32_t m_v[3];   //> vertices
    int32_t m_n[3];   //> normals

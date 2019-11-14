@@ -36,7 +36,7 @@ main(int argc, char *argv[])
            b.m_v[ii] = ii+3;
        }
 
-       TriangleIntersection ix = a.intersect(b, vertices);
+       TriangleIntersection ix = intersect(a, vertices, b, vertices);
        std::cout << "  " << ix << std::endl;
        if (ix.intersect)
        {
@@ -48,8 +48,8 @@ main(int argc, char *argv[])
                          << std::endl;
            }
            std::cout << "# intersection points" << std::endl
-                     << "v " << ix.p0[0] << " " << ix.p0[1] << " " << ix.p0[2] << std::endl
-                     << "v " << ix.p1[0] << " " << ix.p1[1] << " " << ix.p1[2] << std::endl
+                     << "v " << ix.p[0][0] << " " << ix.p[0][1] << " " << ix.p[0][2] << std::endl
+                     << "v " << ix.p[1][0] << " " << ix.p[1][1] << " " << ix.p[1][2] << std::endl
                      << std::endl;
 
            std::cout << "f 1 2 3" << std::endl
