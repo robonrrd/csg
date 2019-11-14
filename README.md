@@ -1,11 +1,17 @@
 # libCSG - A constructive "solid" geometry library #
 
-This is a clean re-implementation of work I did years ago at a visual effects company.  This library implements the three core CSG operations (intersection, union, and difference) on triangulated meshes.  Unlike typical CSG implementations, the meshes to 
+This is a clean re-implementation of work I did years ago at a visual effects company.  This library implements the three core CSG operations (intersection, union, and difference) on triangulated meshes.  Unlike typical CSG implementations, the meshes to
 be operated on do not need to be solid (*i.e.* watertight) or even manifold.
 
 ## Dependencies ##
 Requires [Eigen](http://eigen.tuxfamily.org/index.php?title=Main_Page#Download).
 
+In my previous implementation, I used a propietary retriangulation algorithm to break up
+the cut triangles. However, for this public implementation, I am using
+[Jonathan Shewchuk](https://people.eecs.berkeley.edu/~jrs/)'s excellent
+[Triangle](http://www.cs.cmu.edu/~quake/triangle.html) library. This code is free for
+personal and research use but not for commercial use, and does not fall under the
+license that the rest of this code uses.
 
 ## To Build ##
 In the top-level ```csg``` directory:
@@ -31,4 +37,6 @@ points that describe new edges.
 5. Categorize the cut triangles into two new surfaces, based on whether they
 are above or below the face that cut them. We flood-fill the membership among
 the uncut triangles.
+6. Generate the output meshes by combining the four mesh fragment results (clay above the knife, clay below the knife, knife above the clay, knife below the clay) in
+various ways, depending on the operation we desire.
 
