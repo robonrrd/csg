@@ -6,6 +6,7 @@
 #include <stdlib.h>
 
 
+// Helper functions for OBJ parsing
 bool triplet_valid(const std::vector<uint32_t>& idx, uint32_t ii)
 {
    return ((idx[ii] > 0) && (idx[ii + 1] > 0) && (idx[ii + 2] > 0));
@@ -29,9 +30,36 @@ std::istream& operator>>(std::istream& is, WordDelimitedBy<T>& output)
    return is;
 }
 
+
 namespace CSG
 {
 
+
+// Triangle class member functions
+//
+std::ostream& operator<<(std::ostream& os, const Triangle& tri)
+{
+   os << "v: " << tri.m_v[0] << ", " << tri.m_v[1] << ", " << tri.m_v[2] << "  "
+      << "uv: " << tri.m_uv[0] << ", " << tri.m_uv[1] << ", " << tri.m_uv[2]  << "  "
+      << "n: "  << tri.m_n[0] << ", " << tri.m_n[1] << ", " << tri.m_n[2];
+
+   return os;
+}
+
+
+Triangle::Triangle()
+{
+   for (uint32_t ii=0; ii<3; ++ii)
+   {
+      m_v[ii]  = NO_ENTRY;
+      m_n[ii]  = NO_ENTRY;
+      m_uv[ii] = NO_ENTRY;
+   }
+}
+
+
+// TriMesh class member functions
+//
 uint32_t TriMesh::loadOBJ(const std::string& path)
 {
    m_vertices.clear();
@@ -145,7 +173,6 @@ uint32_t TriMesh::loadOBJ(const std::string& path)
          for (int32_t jj = 0; jj < 3; ++jj)
             tri.m_uv[jj] = Triangle::NO_ENTRY;
 
-      //std::cout << "Face " << ii/3 << ": " << tri << std::endl;
       m_faces.push_back(tri);
       ii += 3;
    }

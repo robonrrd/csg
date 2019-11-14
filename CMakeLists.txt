@@ -12,9 +12,9 @@ set( EIGEN3_INCLUDE_DIR /usr/include/eigen3 )
 #
 add_library(csg SHARED
    src/aabb.cpp
-   src/triangle.cpp
    src/trimesh.cpp
    src/libcsg.cpp
+   src/triangle.c
 )
 
 # Set the location for library installation
@@ -36,3 +36,8 @@ target_link_libraries(aabb_test ${PROJECT_LINK_LIBS})
 add_executable(intersection_test src/intersection_test.cpp)
 target_link_libraries(intersection_test ${PROJECT_LINK_LIBS})
 
+# 'triangle' code test
+add_executable(triangle_test src/triangle_test.cpp)
+target_link_libraries(triangle_test ${PROJECT_LINK_LIBS})
+
+add_executable(rot_test src/rot_test.cpp)
