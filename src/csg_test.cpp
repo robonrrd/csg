@@ -10,17 +10,24 @@ main(int argc, char *argv[])
    using namespace CSG;
 
 
-   if (argc != 2)
+   if (argc != 3)
    {
-       std::cout << "Usage: csg_test OBJ_FILE" << std::endl;
+       std::cout << "Usage: csg_test CLAY_OBJ_FILE  KNIFE_OBJ_FILE" << std::endl;
        return 0;
    }
 
-   TriMesh input;
-   const std::string path(argv[1]);
-   input.loadOBJ( path );
+   TriMesh clay;
+   {
+       const std::string path(argv[1]);
+       clay.loadOBJ( path );
+   }
+   TriMesh knife;
+   {
+       const std::string path(argv[2]);
+       knife.loadOBJ( path );
+   }
 
-   std::cout << "Building AABB tree" << std::endl;
-   AABBTree tree = input.createAABBTree();
-   std::cout << " ..done" << std::endl;
+   CSGOperation operation = CSGOperation::kDifference;
+   TriMesh A, B;
+   CSG::CSG(clay, knife, operation, A, B);
 }

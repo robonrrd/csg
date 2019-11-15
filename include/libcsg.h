@@ -45,14 +45,6 @@ class IPoint
 };
 
 
-// An IFace is a triangle face that uses IPoints
-class IFace
-{
-public:
-   
-};
-
-
 class TriangleIntersection
 {
  public:
