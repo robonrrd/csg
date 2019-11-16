@@ -27,7 +27,11 @@ main(int argc, char *argv[])
        knife.loadOBJ( path );
    }
 
+
+   CSG::CSGEngine engine(clay, knife);
+
    CSGOperation operation = CSGOperation::kDifference;
+   bool cap = true; // create end-caps for solid output
    TriMesh A, B;
-   CSG::CSG(clay, knife, operation, A, B);
+   engine.construct(operation, cap, A, B);
 }

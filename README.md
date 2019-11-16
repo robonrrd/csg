@@ -7,7 +7,7 @@ be operated on do not need to be solid (*i.e.* watertight) or even manifold.
 Requires [Eigen](http://eigen.tuxfamily.org/index.php?title=Main_Page#Download).
 
 In my previous implementation, I used a propietary retriangulation algorithm to break up
-the cut triangles. However, for this public implementation, I am using
+the cut triangles. However, for this public implementation I am using
 [Jonathan Shewchuk](https://people.eecs.berkeley.edu/~jrs/)'s excellent
 [Triangle](http://www.cs.cmu.edu/~quake/triangle.html) library. This code is free for
 personal and research use but not for commercial use, and does not fall under the
@@ -24,12 +24,12 @@ make
 
 ## Explanation of the Algorithm ##
 Essentially, the CSG algorithm finds all intersections of the triangles in mesh "A" and
-mesh "B", retriangulated the intersected faces to preserve these new edges, and then
+mesh "B", retriangulates the intersected faces to preserve these new edges, and then
 seperates the cut mesh (what we called the "clay") into two new meshes.
 
 In more detail:
-1. Create AABB tree of the two meshes (the "clay" and the "knife").
-2. Using the AABB tree, do a broadphase intersection step, to find pairs of
+1. Create AABB trees of the two meshes (the "clay" and the "knife").
+2. Using the AABB trees, do a broadphase intersection step to find pairs of
 bounding boxes that may contain intersecting triangles
 3. Determine exact triangle-triangle intersections, yeilding potentially new
 points that describe new edges.
