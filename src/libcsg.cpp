@@ -1,15 +1,18 @@
-#include <bitset>
+//
+//
+//
+//
+#include <set>
 #include <unordered_set>
-
 #include <Eigen/Dense>
-
 #include "libcsg.h"
 extern "C"
 {
 #include "triangle.h"
 }
 
-#define DEBUG
+
+//#define DEBUG
 
 namespace CSG
 {
@@ -17,7 +20,6 @@ namespace CSG
 // special constants, and they create edge case and problems, but some times
 // they're necessary.
 // All magic numbers are expressed in terms of 'units in the last place'
-
 constexpr uint32_t ALPHA_ULP = 2;
 constexpr uint32_t POINT_ULP = 2;
 
@@ -746,22 +748,18 @@ TriangleIntersection intersect(
 // Using the 3d position of an intersection point, determine if it is exactly
 // a vertex on one (or both) of the intersecting triangles. If so, we track this
 // information
-std::vector<IPoint> convertToIPoints(
-    const TriangleIntersection& ix,
-    const Triangle& ct, uint32_t cidx,
-    const std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>& c_verts,
-    const Triangle& kt, uint32_t kidx,
-    const std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>& k_verts)
+std::vector<IPoint> CSGEngine::convertIntersectionToIpoints(const TriangleIntersection& ix,
+                                                            uint32_t cidx, uint32_t kidx)
 {
-   std::vector<IPoint> pts;
+   const Triangle& ct = m_clay.faces()[cidx];
+   const Triangle& kt = m_knife.faces()[kidx];
 
    // Fill out non-parent fields
-   IPoint p[2];
+   std::vector<IPoint> pts(2);
    for (uint32_t ii = 0; ii < 2; ++ii)
    {
-      p[ii].pos = ix.p[ii];
-      p[ii].cidx = cidx;
-      p[ii].kidx = kidx;
+      pts[ii].cidx = cidx;
+      pts[ii].kidx = kidx;
    }
 
    // Determine the 'parenthood': is this point an exact duplicate of a point on
@@ -772,7 +770,7 @@ std::vector<IPoint> convertToIPoints(
       uint32_t clay_v_idx = 4;
       for (uint32_t ii = 0; ii < 3; ++ii)
       {
-         if (point_almost_equal(ix.p[jj], c_verts[ct.m_v[ii]]))
+         if (point_almost_equal(ix.p[jj], m_clay.vertices()[ct.m_v[ii]]))
          {
             clay_v_idx = ii;
             break;
@@ -783,7 +781,7 @@ std::vector<IPoint> convertToIPoints(
       uint32_t knife_v_idx = 4;
       for (uint32_t ii = 0; ii < 3; ++ii)
       {
-         if (point_almost_equal(ix.p[jj], k_verts[kt.m_v[ii]]))
+         if (point_almost_equal(ix.p[jj], m_knife.vertices()[kt.m_v[ii]]))
          {
             knife_v_idx = ii;
             break;
@@ -792,28 +790,33 @@ std::vector<IPoint> convertToIPoints(
 
       if ((clay_v_idx < 4) && (knife_v_idx == 4))
       {
-         p[jj].parent = kClay;
-         p[jj].p_idx = clay_v_idx;
+         // This point is a clay mesh vertex
+         pts[jj].ref.parent = kClay;
+         pts[jj].ref.idx = clay_v_idx;
       }
       else if ((clay_v_idx == 4) && (knife_v_idx < 4))
       {
-         p[jj].parent = kKnife;
-         p[jj].p_idx = knife_v_idx;
+         // This point is a knife mesh vertex
+         pts[jj].ref.parent = kKnife;
+         pts[jj].ref.idx = knife_v_idx;
       }
       else if ((clay_v_idx < 4) && (knife_v_idx < 4))
       {
-         p[jj].parent = kBoth;
+         // This point is a vertex on both clay and knife
+         pts[jj].ref.parent = kBoth;
          // TODO: should  we preserve both clay and knife vert indices here?
-         p[jj].p_idx = clay_v_idx;
+         pts[jj].ref.idx = clay_v_idx;
       }
       else
       {
-         p[jj].parent = kNew;
-         p[jj].p_idx = 0;  // don't care, but don't leave it uninitialized
+         // A new point
+         m_newPointPositions.push_back(ix.p[jj]);
+         pts[jj].ref.parent = kNew;
+         pts[jj].ref.idx = m_newPointPositions.size()-1;
       }
-      pts.push_back(p[jj]);
    }
 
+#ifdef DEBUG
    std::cout << "alpha=" << ix.alpha << "  beta=" << ix.beta << std::endl;
    if (almost_equal(ix.alpha, 1.0, ALPHA_ULP))
    {
@@ -823,6 +826,7 @@ std::vector<IPoint> convertToIPoints(
    {
       std::cout << "alpha is almost 0.0" << std::endl;
    }
+#endif
 
    return pts;
 }
@@ -855,7 +859,7 @@ void initializeTriangulateio(struct triangulateio& io)
    io.numberofedges = 0;
 }
 
-
+#if 0
 std::vector<Eigen::Vector3i, Eigen::aligned_allocator<Eigen::Vector3i>> retriangulate(
     const TriMesh& mesh, uint32_t fidx,
     const std::vector<IPoint>& new_verts,
@@ -941,65 +945,254 @@ std::vector<Eigen::Vector3i, Eigen::aligned_allocator<Eigen::Vector3i>> retriang
 
    return new_tris;
 }
+#endif
 
 
-void CSG(const TriMesh& clay, const TriMesh& knife, CSGOperation operation, TriMesh& A, TriMesh& B)
+std::vector<std::pair<uint32_t, uint32_t>> intersectAABBs(const TriMesh& clay, const TriMesh& knife)
 {
    std::cout << "Building AABB trees.." << std::endl;
    AABBTree clay_tree = clay.createAABBTree();
    AABBTree knife_tree = knife.createAABBTree();
-   std::cout << "..done" << std::endl;
+   std::cout << " ..done" << std::endl;
 
    // Calculate potential triangle intersections
    std::vector<std::pair<uint32_t, uint32_t>> ix = clay_tree.intersect(knife_tree);
    std::cout << ix.size() << " AABB collisions found" << std::endl;
+   return ix;
+}
 
-   // Vector to store new vertices. Both clay and knife will share these vertices
-   std::vector<IPoint> new_verts;
+
+// CSGEngine member functions
+//
+
+CSGEngine::CSGEngine(const TriMesh& in_clay, const TriMesh& in_knife)
+   : m_clay(in_clay)
+   , m_knife(in_knife)
+{
+   // empty
+}
+
+
+const Eigen::Vector3d& CSGEngine::ipointPos(const IPointRef& ref) const
+{
+   if (ref.parent == kClay)
+      return m_clay.vertices()[ref.idx];
+   else if (ref.parent == kKnife)
+      return m_knife.vertices()[ref.idx];
+   else
+      return m_newPointPositions[ref.idx];
+}
+
+
+std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_mesh, uint32_t fidx,
+                                            const std::vector<uint32_t>& new_vert_indices) const
+{
+   const uint32_t numPoints = 3 + new_vert_indices.size();
+   const uint32_t numSegments = new_vert_indices.size() / 2;
+
+#ifdef DEBUG
+   std::cout << "numPoints=" << numPoints << "  numSegments=" << numSegments << std::endl;
+#endif
+
+   // Rotate the triangle into the XY plane ('triangle' is2D only)
+   const Eigen::Vector3d& p0 = mesh.vertices()[mesh.faces()[fidx].m_v[0]];
+   const Eigen::Vector3d& p1 = mesh.vertices()[mesh.faces()[fidx].m_v[1]];
+   const Eigen::Vector3d& p2 = mesh.vertices()[mesh.faces()[fidx].m_v[2]];
+
+   const Eigen::Vector3d n = (p1 - p0).normalized().cross((p2 - p0).normalized());  // normal
+   const Eigen::Vector3d axis = n.cross(Eigen::Vector3d::UnitZ()).normalized();
+   const double angle = acos(n[2]);
+   const Eigen::Matrix3d rot = Eigen::AngleAxisd(angle, axis).matrix();
+
+   std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> pts_2d(numPoints);
+   pts_2d[0] = rot * p0;
+   pts_2d[1] = rot * p1;
+   pts_2d[2] = rot * p2;
+   for (uint32_t ii = 0; ii < new_vert_indices.size(); ++ii)
+      pts_2d[3 + ii] = rot * ipointPos(m_newPoints[new_vert_indices[ii]].ref);
+
+
+#ifdef DEBUG
+   std::cout << "Retriangulating face " << fidx << std::endl
+             << " Triangle points:" << std::endl
+             << "  p0: " << p0.transpose() << std::endl
+             << "  p1: " << p1.transpose() << std::endl
+             << "  p2: " << p2.transpose() << std::endl
+             << " Intersection points:" << std::endl;
+   for (uint32_t ii = 0; ii < new_vert_indices.size(); ++ii)
+      std::cout << "  i" << ii << ": "
+                << ipointPos(m_newPoints[new_vert_indices[ii]].ref).transpose()
+                << std::endl;
+
+   std::cout << " 2d points" << std::endl;
+   for (const auto& pt : pts_2d)
+      std::cout << "  " << pt.transpose() << std::endl;
+   std::cout << std::endl;
+#endif
+
+   struct triangulateio in;
+   initializeTriangulateio(in);
+
+   in.numberofpoints = numPoints;
+   in.pointlist = (double*)malloc(numPoints * 2 * sizeof(double));
+
+   for (uint32_t ii = 0; ii < numPoints; ++ii)
+   {
+      in.pointlist[2 * ii] = pts_2d[ii][0];
+      in.pointlist[2 * ii + 1] = pts_2d[ii][1];
+   }
+
+   in.numberofsegments = numSegments;
+   in.segmentlist = (int*)malloc(numSegments * 2 * sizeof(int));
+   for (uint32_t ii = 0; ii < numSegments; ++ii)
+   {
+      in.segmentlist[2 * ii] = 3 + ii;
+      in.segmentlist[2 * ii + 1] = 4 + ii;
+   }
+
+   struct triangulateio out;
+   initializeTriangulateio(out);
+
+   char flags[] = "cz";  // pcze
+   triangulate(flags, &in, &out, 0);
+
+   // Convert the locally-indices triangle vertex indices into IPointRefs
+   std::vector<IFace> new_faces(out.numberoftriangles);
+   for (uint32_t ii = 0; ii < out.numberoftriangles; ii++)
+   {
+      new_faces[ii].orig = fidx;
+      for (uint32_t jj = 0; jj < 3; jj++)
+      {
+         uint32_t idx = out.trianglelist[ii * 3 + jj];
+         if (idx < 3) // original vertices
+         {
+            new_faces[ii].v[jj].parent = which_mesh;
+            new_faces[ii].v[jj].idx = mesh.faces()[fidx].m_v[idx];
+         }
+         else
+         {
+            new_faces[ii].v[jj] = m_newPoints[new_vert_indices[idx-3]].ref;
+         }
+      }
+   }
+
+#if 0
+   // dump raw output
+   std::cout << "# raw output from triangulate" << std::endl;
+   std::cout << "v " << p0.transpose() << std::endl;
+   std::cout << "v " << p1.transpose() << std::endl;
+   std::cout << "v " << p2.transpose() << std::endl;
+
+   for (uint32_t ii = 0; ii < new_vert_indices.size(); ++ii)
+       std::cout << "v " << ipointPos(m_newPoints[new_vert_indices[ii]].ref).transpose()
+                 << std::endl;
+
+   std::cout << "# faces" << std::endl;
+   for (uint32_t ii = 0; ii < out.numberoftriangles; ii++)
+   {
+       std::cout << "f";
+       for (uint32_t jj = 0; jj < 3; jj++)
+       {
+           std::cout << " " << out.trianglelist[ii * 3 + jj]+1;
+       }
+       std::cout << std::endl;
+   }
+   std::cout << std::endl << std::endl;
+#endif
+
+   free(in.pointlist);
+   free(in.segmentlist);
+
+   return new_faces;
+
+}
+
+void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriMesh& out_B)
+{
+   // Create and intersect AABB trees:
+   std::vector<std::pair<uint32_t, uint32_t>> ix = intersectAABBs(m_clay, m_knife);
+
 
    // Calculate actual triangle intersections, with intersection data
    const uint32_t ix_sz = ix.size();
+
    std::unordered_set<uint32_t> cut_clay_faces;
    std::unordered_set<uint32_t> cut_knife_faces;
-   std::vector<bool> is_clay_face_cut(clay.faces().size(), false);
-   std::vector<bool> is_knife_face_cut(knife.faces().size(), false);
+   std::vector<bool> is_clay_face_cut(m_clay.faces().size(), false);
+   std::vector<bool> is_knife_face_cut(m_knife.faces().size(), false);
+
+   // Indices into the m_newPoints vector, which contains IPoints which
+   // refer to either clay or knife mesh verticies, or m_newPointPositions
    std::unordered_map<uint32_t, std::vector<uint32_t>> clay_face_new_verts;
+
    for (uint32_t ii = 0; ii < ix_sz; ++ii)
    {
       const uint32_t c_idx = ix[ii].first;
       const uint32_t k_idx = ix[ii].second;
 
+      // Record which faces have been cut, so we can ignore replace them later
+      // with the diced up versions
       cut_clay_faces.insert(c_idx);
       cut_knife_faces.insert(k_idx);
       is_clay_face_cut[c_idx] = true;
       is_knife_face_cut[k_idx] = true;
 
-      const Triangle& ct = clay.faces()[c_idx];
-      const Triangle& kt = knife.faces()[k_idx];
-      TriangleIntersection trix = intersect(ct, clay.vertices(), kt, knife.vertices());
-      if (!trix.intersect)
+      const Triangle& ct = m_clay.faces()[c_idx];
+      const Triangle& kt = m_knife.faces()[k_idx];
+      TriangleIntersection trix = intersect(ct, m_clay.vertices(), kt, m_knife.vertices());
+      if (!trix.intersect) // just because AABBs intersect doesn't mean the faces do
          continue;
 
       if (trix.coplanar)
          continue;  // TODO: will handle this later
 
-      std::vector<IPoint> pts = convertToIPoints(trix, ct, c_idx, clay.vertices(), kt, k_idx,
-                                                 knife.vertices());
-      new_verts.insert(new_verts.end(), pts.begin(), pts.end());
+      // Convert the raw positions to indices into one of three arrays: existing clay mesh
+      // vertices, existing knife mesh vertices, or new vertices (which may be duplicates
+      // of other new vertices; we'll clean this up later)
+      std::vector<IPoint> pts = convertIntersectionToIpoints(trix, c_idx, k_idx);
+      m_newPoints.insert(m_newPoints.end(), pts.begin(), pts.end());
 
+      // Record which elements of 'm_newPoints' correspond to cuts in each face
       auto itr = clay_face_new_verts.find(c_idx);
       if (itr == clay_face_new_verts.end())
          clay_face_new_verts.insert({c_idx, std::vector<uint32_t>()});
-      clay_face_new_verts[c_idx].push_back(new_verts.size() - 1);
-      clay_face_new_verts[c_idx].push_back(new_verts.size() - 2);
+      clay_face_new_verts[c_idx].push_back(m_newPoints.size() - 1);
+      clay_face_new_verts[c_idx].push_back(m_newPoints.size() - 2);
    }
 
-   // Step through the cut faces and retriangulate them
-   std::vector<Eigen::Vector3i, Eigen::aligned_allocator<Eigen::Vector3i>> new_clay_faces;
+   // Step through the cut faces and retriangulate them. New triangles are stored
+   // as triplets of point references
+   std::vector<IFace> new_clay_faces;
    for (auto itr = cut_clay_faces.begin(); itr != cut_clay_faces.end(); ++itr)
    {
-      auto result = retriangulate(clay, *itr, new_verts, clay_face_new_verts[*itr]);
+      auto result = retriangulate(m_clay, kClay, *itr, clay_face_new_verts[*itr]);
       new_clay_faces.insert(new_clay_faces.end(), result.begin(), result.end());
+   }
+
+   // Dump new faces to obj
+   std::cout << "# Clay vertices" << std::endl;
+   for (uint32_t ii=0; ii<m_clay.vertices().size(); ++ii)
+   {
+      std::cout << "v " << m_clay.vertices()[ii].transpose() << std::endl;
+   }
+   std::cout << "# New vertices" << std::endl;
+   for (uint32_t ii=0; ii<m_newPointPositions.size(); ++ii)
+   {
+      std::cout << "v " << m_newPointPositions[ii].transpose() << std::endl;
+   }
+
+   for (uint32_t ii=0; ii<new_clay_faces.size(); ++ii)
+   {
+       std::cout << "f ";
+       for (uint32_t jj=0; jj<3; ++jj)
+       {
+           const auto& pt = new_clay_faces[ii].v[jj];
+           if (pt.parent == kClay)
+               std::cout << pt.idx+1 << " ";
+           else if (pt.parent == kNew)
+               std::cout << pt.idx+m_clay.vertices().size()+1 << " ";
+       }
+       std::cout << std::endl;
    }
 
 }
