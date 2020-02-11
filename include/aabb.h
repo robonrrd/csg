@@ -238,7 +238,3 @@ class AABBTree
    void validateMetrics(uint32_t root_index) const;
 };
 
-std::vector< std::pair<uint32_t, uint32_t> > intersectAABBTrees(const AABBTree& treeA,
-                                                                const AABBTree& treeB);
-
-
