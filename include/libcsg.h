@@ -9,9 +9,10 @@ namespace CSG
 {
 enum CSGOperation
 {
-   kInterection,
-   kUnion,
-   kDifference
+   kBadValue = 0,
+   kIntersection = 1,
+   kUnion = 2,
+   kDifference = 3
 };
 
 enum IParent
@@ -26,7 +27,7 @@ class IPointRef
 {
 public:
    IParent parent;
-   uint32_t idx;  // index into parent face (if applicable)
+   uint32_t idx;  // index into parent face's mesh (if applicable)
 };
 
 
@@ -45,7 +46,7 @@ class IFace
 {
 public:
    IPointRef v[3];
-   uint32_t orig; // original face
+   uint32_t  orig; // original face
 };
 
 enum TriTriIntersectionType
@@ -59,6 +60,7 @@ enum TriTriIntersectionType
 class TriangleIntersection
 {
  public:
+#ifndef SWIG
    friend std::ostream& operator<<(std::ostream& os, const TriangleIntersection& ix)
    {
       if (!ix.intersect)
@@ -76,6 +78,7 @@ class TriangleIntersection
       }
       return os;
    }
+#endif
 
    bool intersect;        // is there an intersection at all?
    bool coplanar;         // are the triangles coplanar
@@ -89,9 +92,11 @@ class CSGEngine
 {
  public:
    CSGEngine(const TriMesh& clay, const TriMesh& knife);
+
    void construct(CSGOperation operation, bool cap, TriMesh& output_A, TriMesh& output_B);
 
  private:
+   // Member functions
    const Eigen::Vector3d& ipointPos(const IPointRef& ref) const;
 
    std::vector<IPoint> convertIntersectionToIpoints(const TriangleIntersection& ix,
@@ -100,6 +105,10 @@ class CSGEngine
    std::vector<IFace> retriangulate(const TriMesh& mesh, IParent which_mesh, uint32_t fidx,
                                     const std::vector<uint32_t>& new_vert_indices) const;
 
+   std::vector<char> classifyCutFaces(const std::vector<IFace>& in_faces, IParent which);
+
+
+   // Data members
    const TriMesh& m_clay;
    const TriMesh& m_knife;
 
@@ -110,8 +119,6 @@ class CSGEngine
 
    // The positions of the genuinely new points created by triangle intersections
    std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> m_newPointPositions;
-
-
 };
 
 

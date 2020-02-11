@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.0x)
 project (csg)
 set (CMAKE_CXX_STANDARD 11)
 
-set( EIGEN3_INCLUDE_DIR /usr/include/eigen3 )
+set( EIGEN3_INCLUDE_DIR /usr/local/include/eigen3 )
 
 # the file(GLOB...) allows for wildcard additions:
 #file(GLOB SOURCES "src/*.cpp")
@@ -18,7 +18,7 @@ add_library(csg SHARED
 )
 
 # Set the location for library installation
-install(TARGETS csg DESTINATION lib)
+#install(TARGETS csg DESTINATION lib)
 
 set ( PROJECT_LINK_LIBS csg)
 link_directories( build lib )
@@ -36,3 +36,30 @@ target_link_libraries(aabb_test ${PROJECT_LINK_LIBS})
 add_executable(triangle_test src/triangle_test.cpp)
 target_link_libraries(triangle_test ${PROJECT_LINK_LIBS})
 
+## SWIG for Python bindings (pycsg)
+##
+find_package(SWIG REQUIRED)
+include(${SWIG_USE_FILE})
+
+find_package(PythonLibs)
+include_directories(${PYTHON_INCLUDE_PATH})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+
+set(CMAKE_SWIG_FLAGS "")
+set_source_files_properties(swig/pycsg.i PROPERTIES CPLUSPLUS ON)
+set_source_files_properties(swig/pycsg.i PROPERTIES SWIG_FLAGS "")
+swig_add_library(pycsg
+                 TYPE SHARED
+                 LANGUAGE python
+                 SOURCES swig/pycsg.i src/trimesh.cpp src/aabb.cpp src/triangle.c src/libcsg.cpp)
+swig_link_libraries(pycsg ${PYTHON_LIBRARIES})
+
+install(TARGETS ${SWIG_MODULE_pycsg_REAL_NAME}
+  DESTINATION $ENV{HOME}/.local/lib/python3.6/site-packages)
+
+install(FILES build/pycsg.py
+  DESTINATION  $ENV{HOME}/.local/lib/python3.6/site-packages)
+
+
+# Install Blender add-on
+# cp bldner/csg.py /usr/share/blender/scripts/addons

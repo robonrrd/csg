@@ -2,6 +2,7 @@
 //
 //
 //
+#include <assert.h>
 #include <set>
 #include <unordered_set>
 #include <Eigen/Dense>
@@ -17,7 +18,7 @@ extern "C"
 namespace CSG
 {
 // Magic numbers and tolerances. We seek to minimize the number of
-// special constants, and they create edge case and problems, but some times
+// special constants as they create edge case and problems but some times
 // they're necessary.
 // All magic numbers are expressed in terms of 'units in the last place'
 constexpr uint32_t ALPHA_ULP = 2;
@@ -962,6 +963,17 @@ std::vector<std::pair<uint32_t, uint32_t>> intersectAABBs(const TriMesh& clay, c
 }
 
 
+IParent otherMesh(IParent which)
+{
+   if (which == kClay)
+      return kKnife;
+   if (which == kKnife)
+      return kClay;
+
+   assert(false);
+}
+
+
 // CSGEngine member functions
 //
 
@@ -1107,35 +1119,134 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
 
 }
 
+
+const Eigen::Vector3d centroid(const TriMesh& mesh, uint32_t ff)
+{
+   const Triangle& face = mesh.faces()[ff];
+   return (mesh.vertices()[face.m_v[0]] + mesh.vertices()[face.m_v[1]] +
+           mesh.vertices()[face.m_v[2]])/3.0;
+}
+
+
+std::vector<char>  CSGEngine::classifyCutFaces(const std::vector<IFace>& in_faces,
+                                               IParent which_surface)
+{
+   // status:
+   // -1 - below
+   //  0 - unknown
+   //  1 - above
+   const size_t num_faces = in_faces.size();
+   std::vector<char> status(num_faces, 0);
+   uint32_t num_unknown = 0;
+   for (size_t fidx = 0; fidx < num_faces; ++fidx)
+   {
+      const IFace& ff = in_faces[fidx];
+
+      // Find a face on the opposite surface (the one that cut this one) to
+      // compare against for above/belowness
+      IPointRef testFace; // repurposing this structure to track a face
+      for (size_t ii=0; ii<3; ++ii)
+      {
+         if (ff.v[ii].parent == kNew)
+         {
+            if (which_surface == kClay)
+            {
+               testFace.parent = kKnife;
+               testFace.idx = m_newPoints[ff.v[ii].idx].kidx;
+            }
+            else
+            {
+               testFace.parent = kClay;
+               testFace.idx = m_newPoints[ff.v[ii].idx].cidx;
+            }
+         }
+      }
+      // TODO: precompute or lazily compute face normals
+      Eigen::Vector3d normal;
+      Eigen::Vector3d center;
+      if (testFace.parent == kClay)
+      {
+         normal = m_clay.faceNormal(testFace.idx);
+         center = centroid(m_clay, testFace.idx);
+      }
+      else
+      {
+         normal = m_knife.faceNormal(testFace.idx);
+         center = centroid(m_knife, testFace.idx);
+      }
+
+      int vote_above = 0;
+      int vote_below = 0;
+      // Test each vertex
+      Eigen::Vector3d face_center(0,0,0);
+      for (size_t ii=0; ii<3; ++ii)
+      {
+         const Eigen::Vector3d vpos = ipointPos(ff.v[ii]);
+         face_center += vpos;
+
+         if (ff.v[ii].parent == kNew)
+         {
+            Eigen::Vector3d vv = vpos - center;
+            if (vv.dot(normal) > 0)
+               vote_above++;
+            else if (vv.dot(normal) < 0)
+               vote_below++;
+         }
+      }
+
+      // Test triangle center
+      face_center /= 3.0f;
+      Eigen::Vector3d vv = face_center - center;
+      if (vv.dot(normal) > 0)
+         vote_above++;
+      else if (vv.dot(normal) < 0)
+         vote_below++;
+
+      if (vote_above > vote_below)
+      {
+         status[fidx] = 1;
+      }
+      else if (vote_below > vote_above)
+      {
+         status[fidx] = -1;
+      }
+      else
+      {
+         status[fidx] = 0;
+         num_unknown++;
+      }
+   }
+
+   std::cout << num_unknown << " unclassified cut faces remain" << std::endl;
+   return status;
+}
+
+
 void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriMesh& out_B)
 {
    // Create and intersect AABB trees:
    std::vector<std::pair<uint32_t, uint32_t>> ix = intersectAABBs(m_clay, m_knife);
-
-
-   // Calculate actual triangle intersections, with intersection data
    const uint32_t ix_sz = ix.size();
 
+   // Calculate actual triangle intersections, with intersection data
+
+   // Sets of indices of faces that were cut
    std::unordered_set<uint32_t> cut_clay_faces;
    std::unordered_set<uint32_t> cut_knife_faces;
+   // Vectors of bools, indicating whether the face was cut; faster than seeking
+   // within an unordered_set
    std::vector<bool> is_clay_face_cut(m_clay.faces().size(), false);
    std::vector<bool> is_knife_face_cut(m_knife.faces().size(), false);
 
-   // Indices into the m_newPoints vector, which contains IPoints which
-   // refer to either clay or knife mesh verticies, or m_newPointPositions
+   // Indices into the m_newPoints vector, which contains IPoints which refer to
+   // either clay or knife mesh verticies, or m_newPointPositions
    std::unordered_map<uint32_t, std::vector<uint32_t>> clay_face_new_verts;
+   std::unordered_map<uint32_t, std::vector<uint32_t>> knife_face_new_verts;
 
    for (uint32_t ii = 0; ii < ix_sz; ++ii)
    {
       const uint32_t c_idx = ix[ii].first;
       const uint32_t k_idx = ix[ii].second;
-
-      // Record which faces have been cut, so we can ignore replace them later
-      // with the diced up versions
-      cut_clay_faces.insert(c_idx);
-      cut_knife_faces.insert(k_idx);
-      is_clay_face_cut[c_idx] = true;
-      is_knife_face_cut[k_idx] = true;
 
       const Triangle& ct = m_clay.faces()[c_idx];
       const Triangle& kt = m_knife.faces()[k_idx];
@@ -1145,6 +1256,13 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
 
       if (trix.coplanar)
          continue;  // TODO: will handle this later
+
+      // Record which faces have been cut, so we can ignore replace them later
+      // with the diced up versions
+      cut_clay_faces.insert(c_idx);
+      cut_knife_faces.insert(k_idx);
+      is_clay_face_cut[c_idx] = true;
+      is_knife_face_cut[k_idx] = true;
 
       // Convert the raw positions to indices into one of three arrays: existing clay mesh
       // vertices, existing knife mesh vertices, or new vertices (which may be duplicates
@@ -1158,6 +1276,12 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
          clay_face_new_verts.insert({c_idx, std::vector<uint32_t>()});
       clay_face_new_verts[c_idx].push_back(m_newPoints.size() - 1);
       clay_face_new_verts[c_idx].push_back(m_newPoints.size() - 2);
+
+      itr = knife_face_new_verts.find(k_idx);
+      if (itr == knife_face_new_verts.end())
+          knife_face_new_verts.insert({k_idx, std::vector<uint32_t>()});
+      knife_face_new_verts[k_idx].push_back(m_newPoints.size() - 1);
+      knife_face_new_verts[k_idx].push_back(m_newPoints.size() - 2);
    }
 
    // Step through the cut faces and retriangulate them. New triangles are stored
@@ -1169,6 +1293,7 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
       new_clay_faces.insert(new_clay_faces.end(), result.begin(), result.end());
    }
 
+#if 0
    // Dump new faces to obj
    std::cout << "# Clay vertices" << std::endl;
    for (uint32_t ii=0; ii<m_clay.vertices().size(); ++ii)
@@ -1194,7 +1319,24 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
        }
        std::cout << std::endl;
    }
+#endif
+
+   std::vector<IFace> new_knife_faces;
+   if (cap)
+   {
+       for (auto itr = cut_knife_faces.begin(); itr != cut_knife_faces.end(); ++itr)
+       {
+           auto result = retriangulate(m_knife, kKnife, *itr, knife_face_new_verts[*itr]);
+           new_knife_faces.insert(new_knife_faces.end(), result.begin(), result.end());
+       }
+   }
+
+   // Classify cut faces into 'above' and 'below' sets, depending on if they are
+   // above or below the faces that cut them (with respect to that face's normal)
+   std::vector<char> cut_face_status = classifyCutFaces(new_clay_faces, kClay);
+//   std::vector<IFace> clay_above, clay_below;
 
 }
+
 
 }  // namespace CSG

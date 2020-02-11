@@ -5,6 +5,8 @@
 #include <string>
 #include <stdlib.h>
 
+static constexpr int32_t NO_ENTRY = -1;
+
 
 // Helper functions for OBJ parsing
 bool triplet_valid(const std::vector<uint32_t>& idx, uint32_t ii)
@@ -37,6 +39,7 @@ namespace CSG
 
 // Triangle class member functions
 //
+#ifndef SWIG
 std::ostream& operator<<(std::ostream& os, const Triangle& tri)
 {
    os << "v: " << tri.m_v[0] << ", " << tri.m_v[1] << ", " << tri.m_v[2] << "  "
@@ -45,6 +48,7 @@ std::ostream& operator<<(std::ostream& os, const Triangle& tri)
 
    return os;
 }
+#endif
 
 
 Triangle::Triangle()
@@ -60,6 +64,31 @@ Triangle::Triangle()
 
 // TriMesh class member functions
 //
+TriMesh::TriMesh()
+{
+   // empty
+}
+
+
+TriMesh::TriMesh(const std::vector<double>& in_vertices, const std::vector<unsigned int>& in_faces)
+{
+   const uint32_t numVertices = in_vertices.size()/3;
+   m_vertices.resize(numVertices);
+   for (uint32_t ii=0; ii<numVertices; ++ii)
+      m_vertices[ii] = Eigen::Vector3d(in_vertices[3*ii], in_vertices[3*ii+1], in_vertices[3*ii+2]);
+
+   const uint32_t numFaces = in_faces.size()/3;
+   m_faces.resize(numFaces);
+   for (uint32_t ii=0; ii<numFaces; ++ii)
+      for (uint32_t jj=0; jj<3; ++jj)
+      {
+         m_faces[ii].m_v[jj] = in_faces[3*ii+jj];
+         m_faces[ii].m_n[jj] = NO_ENTRY;
+         m_faces[ii].m_uv[jj] = NO_ENTRY;
+      }
+}
+
+
 uint32_t TriMesh::loadOBJ(const std::string& path)
 {
    m_vertices.clear();
@@ -163,7 +192,7 @@ uint32_t TriMesh::loadOBJ(const std::string& path)
             tri.m_n[jj] = normalIndices[ii + jj] - 1;
       else
          for (int32_t jj = 0; jj < 3; ++jj)
-            tri.m_n[jj] = Triangle::NO_ENTRY;
+            tri.m_n[jj] = NO_ENTRY;
 
       // UVs
       if (triplet_valid(uvIndices, ii))
@@ -171,7 +200,7 @@ uint32_t TriMesh::loadOBJ(const std::string& path)
             tri.m_uv[jj] = uvIndices[ii + jj] - 1;
       else
          for (int32_t jj = 0; jj < 3; ++jj)
-            tri.m_uv[jj] = Triangle::NO_ENTRY;
+            tri.m_uv[jj] = NO_ENTRY;
 
       m_faces.push_back(tri);
       ii += 3;
@@ -205,5 +234,62 @@ AABBTree TriMesh::createAABBTree() const
     return tree;
 }
 
+
+Eigen::Vector3d TriMesh::faceNormalImpl(uint32_t f) const
+{
+    // TODO: lazily evaluate face normals and store them
+
+    const Triangle& face = faces()[f];
+    const Eigen::Vector3d p01 = (m_vertices[face.m_v[1]] - m_vertices[face.m_v[0]]).normalized();
+    const Eigen::Vector3d p12 = (m_vertices[face.m_v[2]] - m_vertices[face.m_v[1]]).normalized();
+
+    return p01.cross(p12);
+}
+
+
+#ifdef SWIG
+// Non-Eigen accessors for Python wrapping
+std::vector<double>& TriMesh::vertices() const
+{
+   std::vector<double> out(m_vertices.size()*3);
+   for (uint32_t ii=0; ii<m_vertices.size(); ++ii)
+      for (uint32_t jj=0; jj<3; ++jj)
+         out[ii*3+jj] = m_vertices[ii][jj];
+   return out;
+}
+
+
+std::vector<double>& TriMesh::normals() const
+{
+   std::vector<double> out(m_normals.size()*3);
+   for (uint32_t ii=0; ii<m_normals.size(); ++ii)
+      for (uint32_t jj=0; jj<3; ++jj)
+         out[ii*3+jj] = m_normals[ii][jj];
+   return out;
+}
+
+// std::vector<double> TriMesh::faceNormal(uint32_t f) const
+// {
+//    const Eigen::Vector3d nn = faceNormalImpl(f);
+
+//    return std::vector<double>{nn[0], nn[1], nn[2]};
+// }
+
+std::vector<double>& TriMesh::uvs() const
+{
+   std::vector<double> out(m_uvs.size()*2);
+   for (uint32_t ii=0; ii<m_uvs.size(); ++ii)
+      for (uint32_t jj=0; jj<2; ++jj)
+         out[ii*3+jj] = m_uvs[ii][jj];
+   return out;
+}
+#else
+
+Eigen::Vector3d TriMesh::faceNormal(uint32_t f) const
+{
+    return faceNormalImpl(f);
+}
+
+#endif
 
 }  // namespace CSG
