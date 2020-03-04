@@ -20,19 +20,22 @@ extern "C"
 
 namespace CSG
 {
-// Magic numbers and tolerances. We seek to minimize the number of
-// special constants as they create edge case and problems but some times
-// they're necessary.
+
+// Magic numbers and tolerances. We seek to minimize the number of special
+// constants as they create edge cases and problems. However, sometimes they're
+// necessary.
 // All magic numbers are expressed in terms of 'units in the last place'
 constexpr uint32_t ALPHA_ULP = 2;
 constexpr uint32_t POINT_ULP = 2;
 
-
+//
+// Helper functions
+//
 template <class T>
 typename std::enable_if<!std::numeric_limits<T>::is_integer, bool>::type
 almost_equal(T x, T y, uint32_t ulp)
 {
-   // the machine epsilon has to be scaled to the magnitude of the values used
+   // The machine epsilon has to be scaled to the magnitude of the values used
    // and multiplied by the desired precision in ULPs (units in the last place)
    return std::fabs(x - y) <= std::numeric_limits<T>::epsilon() * std::fabs(x + y) * ulp
           // unless the result is subnormal
@@ -52,7 +55,9 @@ inline double orient2d(const Eigen::Vector2d& a, const Eigen::Vector2d& b, const
    return ((a[0] - c[0]) * (b[1] - c[1]) - (a[1] - c[1]) * (b[0] - c[0]));
 }
 
-
+//
+// Triangle-triangle intersection functions
+//
 bool intersectionTestVertex(const Eigen::Vector2d& P1, const Eigen::Vector2d& Q1,
                             const Eigen::Vector2d& R1, const Eigen::Vector2d& P2,
                             const Eigen::Vector2d& Q2, const Eigen::Vector2d& R2)
@@ -178,6 +183,7 @@ bool checkMinMax(const Eigen::Vector3d& p1, const Eigen::Vector3d& q1, const Eig
 
    return true;
 }
+
 
 bool ccwTriTriIntersection2d(const Eigen::Vector2d& p1, const Eigen::Vector2d& q1,
                              const Eigen::Vector2d& r1, const Eigen::Vector2d& p2,
@@ -841,9 +847,9 @@ std::vector<IPoint> CSGEngine::convertIntersectionToIpoints(const TriangleInters
 
 // Returns a point index that spans clay vertices, knife vertices, and
 // new vertices:
-// 0...N - Clay vertices
-// N...M - Knife vertices
-// M...L - New vertices
+// 0...N   - Clay vertices
+// N+1...M - Knife vertices
+// M+1...L - New vertices
 uint32_t CSGEngine::canonicalVertexIndex(const IPointRef& ref) const
 {
    uint32_t idx = ref.idx;
@@ -917,6 +923,21 @@ const Eigen::Vector3d centroid(const TriMesh& mesh, uint32_t ff)
    const Triangle& face = mesh.faces()[ff];
    return (mesh.vertices()[face.m_v[0]] + mesh.vertices()[face.m_v[1]] +
            mesh.vertices()[face.m_v[2]])/3.0;
+}
+
+
+// For debugging
+double triangleAspectRatio(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1,
+                           const Eigen::Vector3d& p2)
+{
+   const double d01 = (p0-p1).norm();
+   const double d12 = (p1-p2).norm();
+   const double d20 = (p2-p0).norm();
+
+   const double mmax = std::max(std::max(d01, d12), d20);
+   const double mmin = std::min(std::min(d01, d12), d20);
+
+   return mmax/mmin;
 }
 
 
@@ -1011,7 +1032,7 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
    struct triangulateio out;
    initializeTriangulateio(out);
 
-   char flags[] = "cz";  // pcze
+   char flags[] = "Qcz";  // pcze
    triangulate(flags, &in, &out, 0);
 
    // Convert the locally-indices triangle vertex indices into IPointRefs
@@ -1075,7 +1096,7 @@ std::vector<char>  CSGEngine::classifyCutFaces(const std::vector<IFace>& in_face
    //  1 - above
    const size_t num_faces = in_faces.size();
    std::vector<char> status(num_faces, 0);
-   uint32_t num_unknown = 0;
+   //uint32_t num_unknown = 0;
    for (size_t fidx = 0; fidx < num_faces; ++fidx)
    {
       const IFace& ff = in_faces[fidx];
@@ -1178,7 +1199,7 @@ std::vector<char>  CSGEngine::classifyCutFaces(const std::vector<IFace>& in_face
          }
          std::cout << "votes:  above=" << vote_above << "  below=" << vote_below
                    << std::endl;
-         num_unknown++;
+         //num_unknown++;
       }
    }
 
@@ -1187,211 +1208,142 @@ std::vector<char>  CSGEngine::classifyCutFaces(const std::vector<IFace>& in_face
 }
 
 
-
-Edge makeEdge(uint32_t a, uint32_t b)
+void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& new_faces,
+                              const std::vector<bool>& is_face_cut,
+                              std::vector<char>& cut_face_status,
+                              std::vector<char>& uncut_face_status)
 {
-   Edge e;
-   if (a < b)
+   const TriMesh& original_mesh = ( (which_surface == kClay) ? m_clay : m_knife );
+
+   // Classify cut faces into 'above' and 'below' sets, depending on if they are
+   // above or below the faces that cut them (with respect to that face's normal)
+   const size_t numNewFaces = new_faces.size();
+   cut_face_status = classifyCutFaces(new_faces, which_surface);
+
+   // Flood-fill uncut faces:
+   //  1. create adjacency map between uncut faces and cut faces, using
+   //     shared 'original' (not new ones created by cuttint) vertices
+   //  2. Select a classified cut face and begin filling
+   //  3. All unlabeled faces now below to the other set
+
+   // Map from vertices index to face indices
+   std::unordered_map<uint32_t, std::vector<uint32_t>> adjacency_map;
+
+   // First, add all the cut faces (these have been classified)
+   for (size_t ff=0; ff<numNewFaces; ++ff)
    {
-      e.first = a;
-      e.second = b;
-   }
-   else
-   {
-      e.first = b;
-      e.first = a;
-   }
-   return e;
-}
-
-/*
-void CSGEngine::floodFillFaces(IParent which_surface, const std::vector<IFace>& cut_faces,
-                               const std::vector<char>& cut_face_classes)
-{
-   // Step through all surviving. uncut faces and cut faces and create an
-   // adjacency map
-
-
-   // a map between an ordered edge and a list of faces that contain this edge
-   std::unordered_map<Edge, std::vector<uint32_t>> edge_map;
-
-   // vertex positions are ordered as:
-   // 0   -> N - clay vertices
-   // N+1 -> M - knife vertices
-   // M+1 -> L - new verticex
-   const uint32_t knife_offset = m_clay.vertices().size();
-   const uint32_t new_offset = knife_offset + m_knife.vertices().size();
-   size_t numUncutFaces = 0;
-   {
-      const size_t numFaces = m_clay.faces().size();
-      for (size_t ff=0; ff<numFaces; ++ff)
+      const auto& face = new_faces[ff];
+      for (size_t ii=0; ii<3; ++ii)
       {
-         if (is_clay_face_cut[ff])
-            continue;
-
-         numUncutFaces++;
-         const TriMesh::Triangle& face = m_clay.faces()[ff];
-         for (int ii=0; ii<3; ++ii)
+         uint32_t idx = canonicalVertexIndex(face.v[ii]);
+         auto itr = adjacency_map.find(idx);
+         if (itr == adjacency_map.end())
          {
-            Edge ee = makeEdge(face.m_v[ii], face.m_v[(ii+1)%3]);
-            if (edge_map.contains(ee))
-            {
-               edge_map[ee].push_back(ff);
-            }
+            adjacency_map.insert({idx, std::vector<uint32_t>(1,ff)});
          }
-      }
-   }
-   {
-      const size_t numFaces = cut_faces.size();
-      for (size_t ff=0; ff<numFaces; ++ff)
-      {
-         const IFace& face = cut_faces[ff];
-         for (int ii=0; ii<3; ++ii)
+         else
          {
-            uint32_t i0 = face.v[ii].idx;
-            if (face.v[ii].parent == kKnife)
-               i0 += knife_offset;
-            else
-               i0 += new_offset;
-
-            uint32_t i1 = face.v[(ii+1)%3].idx;
-            if (face.v[(ii+1)%3].parent == kKnife)
-               i1 += knife_offset;
-            else
-               i1 += new_offset;
-
-            Edge ee = makeEdge(i0, i1)
-            if (edge_map.contains(ee))
-            {
-               edge_map[ee].push_back(ff);
-            }
+            itr->second.push_back(ff);
          }
       }
    }
 
-
-   // Depth-first search to find all connected components
-   //
-
-   std::stack<uint32_t> to_do;
-   // find a labelled face in the cut list
-   for (size_t ff=0; ff<cut_faces.size(); ++ff)
+   // Then add the uncut primal faces
+   for(size_t ff=0; ff<original_mesh.faces().size(); ++ff)
    {
-      if (cut_face_classes[ff] > 0) // above
-      {
-         to_do.push(numUncutFaces + ff);
-         break;
-      }
-   }
-   assert( to_do.size() == 1 );
-
-   std::vector<char> status(numUncutFaces + cut_faces.size(), 0);
-   while (to_do.size() > 0)
-   {
-      uint32_t idx = to_do.pop();
-      if (status[idx] != 0)
+      if (is_face_cut[ff])
          continue;
 
-      status[idx] = 1;
-
-      // find connected faces via the edge adjacency map
-      if (idx < numUncutFaces)
+      const auto& face = original_mesh.faces()[ff];
+      uint32_t f_idx = ff + numNewFaces; // offset indexing
+      for (size_t ii=0; ii<3; ++ii)
       {
-
-      {
-         if (is_clay_face_cut[ff])
-            continue;
-
-         numUncutFaces++;
-         const TriMesh::Triangle& face = m_clay.faces()[ff];
-         for (int ii=0; ii<3; ++ii)
+         uint32_t idx = face.m_v[ii];
+         auto itr = adjacency_map.find(idx);
+         if (itr == adjacency_map.end())
          {
-            Edge ee = makeEdge(face.m_v[ii], face.m_v[(ii+1)%3]);
-            if (edge_map.contains(ee))
-            {
-               edge_map[ee].push_back(ff);
-            }
+            adjacency_map.insert({idx, std::vector<uint32_t>(1,f_idx)});
+         }
+         else
+         {
+            itr->second.push_back(f_idx);
          }
       }
    }
+
+#if 0
+   // debug dump of adjacency map
+   std::cout << "adjacency map for clay" << std::endl;
+   for (auto itr=adjacency_map.begin(); itr!=adjacency_map.end(); ++itr)
    {
-      const size_t numFaces = cut_faces.size();
-      for (size_t ff=0; ff<numFaces; ++ff)
+      std::cout << "Vertex " << itr->first << ": faces ";
+      for (auto itr2=itr->second.begin(); itr2!=itr->second.end(); ++itr2)
       {
-         const IFace& face = cut_faces[ff];
-         for (int ii=0; ii<3; ++ii)
+         std::cout << *itr2 << " ";
+      }
+      std::cout << std::endl;
+   }
+   // end debug dump
+#endif
+
+   const size_t numUncutFaces = original_mesh.faces().size() - new_faces.size();
+   std::queue<uint32_t> faces_to_classify;
+   std::vector<bool> uncut_face_classified(original_mesh.faces().size(), false);
+   uncut_face_status.clear();
+   uncut_face_status.resize(original_mesh.faces().size(), 0);
+   for (size_t ff=0; ff<numNewFaces; ++ff)
+   {
+      // Find a successfully classified face
+      char cur_status = cut_face_status[ff];
+      if (cur_status != 0)
+      {
+         for (size_t ii=0; ii<3; ++ii)
          {
-            uint32_t i0 = face.v[ii].idx;
-            if (face.v[ii].parent == kKnife)
-               i0 += knife_offset;
-            else
-               i0 += new_offset;
-
-            uint32_t i1 = face.v[(ii+1)%3].idx;
-            if (face.v[(ii+1)%3].parent == kKnife)
-               i1 += knife_offset;
-            else
-               i1 += new_offset;
-
-            Edge ee = makeEdge(i0, i1)
-            if (edge_map.contains(ee))
+            uint32_t idx = canonicalVertexIndex(new_faces[ff].v[ii]);
+            auto itr = adjacency_map.find(idx);
+            if (itr != adjacency_map.end())
             {
-               edge_map[ee].push_back(ff);
+               for (auto itr2=itr->second.begin(); itr2!=itr->second.end(); ++itr2)
+               {
+                  if (*itr2 < numNewFaces)
+                  {
+                     // don't add cut (i.e. classified) faces
+                     continue;
+                  }
+                  if (uncut_face_classified[*itr2-numNewFaces])
+                  {
+                     // don't add already-classified uncut faces
+                     continue;
+                  }
+                  faces_to_classify.push(*itr2);
+               }
             }
          }
+
+         // go through the queue until we're finished
+         while (!faces_to_classify.empty())
+         {
+            uint32_t f_idx = faces_to_classify.front();
+            faces_to_classify.pop();
+
+            if (f_idx < numNewFaces)
+            {
+               // don't examine cut (i.e. classified) faces
+               continue;
+            }
+            if (uncut_face_classified[f_idx-numNewFaces])
+            {
+               // don't add already-classified uncut faces
+               continue;
+            }
+
+            uncut_face_status[f_idx-numNewFaces] = cur_status;
+            uncut_face_classified[f_idx-numNewFaces] = true;
+         }
       }
-
-      
-
-
-
-
-   // Start with a face with a known "sidedness" (i.e. a cut face, successfully
-   // classified in 'classifyCutFaces') and fill all connected faces until we're
-   // done
+   }
 }
-   */
 
-Edge CSGEngine::makeEdge(const IPointRef& a, const IPointRef& b) const
-{
-   Edge e;
-
-   // vertex positions are ordered as:
-   // 0   -> N - clay vertices
-   // N+1 -> M - knife vertices
-   // M+1 -> L - new vertices
-   uint32_t i0 = a.idx;
-   uint32_t i1 = b.idx;
-
-   if (a.parent != kClay)
-   {
-      i0 += m_clay.vertices().size();
-   }
-   if (b.parent != kClay)
-   {
-      i1 += m_clay.vertices().size();
-   }
-   if (a.parent == kNew)
-   {
-      i0 += m_knife.vertices().size();
-   }
-   if (b.parent == kNew)
-   {
-      i1 += m_knife.vertices().size();
-   }
-
-   if (i0 < i1)
-   {
-      e.first = i0;
-      e.second = i1;
-   }
-   else
-   {
-      e.first = i1;
-      e.first = i0;
-   }
-   return e;
-}
 
 void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriMesh& out_B)
 {
@@ -1469,6 +1421,7 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
    }
 
 
+#if 0
    // Dump new faces to obj
    std::cout << "# Clay vertices" << std::endl;
    for (uint32_t ii=0; ii<m_clay.vertices().size(); ++ii)
@@ -1494,7 +1447,7 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
        }
        std::cout << std::endl;
    }
-
+#endif
 
    std::vector<IFace> new_knife_faces;
    if (cap)
@@ -1506,135 +1459,28 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
        }
    }
 
-   // Classify cut faces into 'above' and 'below' sets, depending on if they are
-   // above or below the faces that cut them (with respect to that face's normal)
+   // Classify all faces as either above the triangle that intersected them (w.r.t. the
+   // intersecting triangle's face normal) or below.
+   // 1. Classify cut faces based on the face that cut them
+   // 2. Construct a vertex adjacency map of all faces that share all primal
+   //    vertices (i.e. verticies on the original mesh; not ones created by
+   //    the retriangulation process
+   // 3. Do a breadth-first fill of all unclassified faces
    //
-   const size_t numNewClayFaces = new_clay_faces.size();
-   const std::vector<char> cut_clay_face_status = classifyCutFaces(new_clay_faces, kClay);
+   std::vector<char> clay_cut_face_status;
+   std::vector<char> clay_uncut_face_status;
+   classifyFaces(kClay, new_clay_faces, is_clay_face_cut, clay_cut_face_status,
+                 clay_uncut_face_status);
 
-   // Flood-fill uncut faces:
-   //  1. create adjacency map between uncut faces and cut faces, using
-   //     shared 'original' (not new ones created by cuttint) vertices
-   //  2. Select a classified cut face and begin filling
-   //  3. All unlabeled faces now below to the other set
-
-   // Map from vertices index to face indices
-   std::unordered_map<uint32_t, std::vector<uint32_t>> adjacency_map;
-
-   // First, add all the cut faces (these have been classified)
-   for (size_t ff=0; ff<numNewClayFaces; ++ff)
+   std::vector<char> knife_cut_face_status;
+   std::vector<char> knife_uncut_face_status;
+   if (cap)
    {
-      const auto& face = new_clay_faces[ff];
-      for (size_t ii=0; ii<3; ++ii)
-      {
-         uint32_t idx = canonicalVertexIndex(face.v[ii]);
-         auto itr = adjacency_map.find(idx);
-         if (itr == adjacency_map.end())
-         {
-            adjacency_map.insert({idx, std::vector<uint32_t>(1,ff)});
-            //std::cout << idx << ", " << ff << " (new) " << std::endl;
-         }
-         else
-         {
-            itr->second.push_back(ff);
-            //std::cout << idx << ", " << ff << std::endl;
-         }
-      }
-   }
-   // Then add the uncut primal clay faces
-   for(size_t ff=0; ff<m_clay.faces().size(); ++ff)
-   {
-      if (is_clay_face_cut[ff])
-         continue;
-
-      const auto& face = m_clay.faces()[ff];
-      uint32_t f_idx = ff + numNewClayFaces; // offset indexing
-      for (size_t ii=0; ii<3; ++ii)
-      {
-         uint32_t idx = face.m_v[ii];
-         auto itr = adjacency_map.find(idx);
-         if (itr == adjacency_map.end())
-         {
-            adjacency_map.insert({idx, std::vector<uint32_t>(1,f_idx)});
-         }
-         else
-         {
-            itr->second.push_back(f_idx);
-         }
-      }
+      classifyFaces(kKnife, new_knife_faces, is_knife_face_cut, knife_cut_face_status,
+                    knife_uncut_face_status);
    }
 
 #if 0
-   // debug dump of adjacency map
-   std::cout << "adjacency map for clay" << std::endl;
-   for (auto itr=adjacency_map.begin(); itr!=adjacency_map.end(); ++itr)
-   {
-      std::cout << "Vertex " << itr->first << ": faces ";
-      for (auto itr2=itr->second.begin(); itr2!=itr->second.end(); ++itr2)
-      {
-         std::cout << *itr2 << " ";
-      }
-      std::cout << std::endl;
-   }
-   // end debug dump
-#endif
-
-   const size_t numUncutClayFaces = m_clay.faces().size() - cut_clay_faces.size();
-   std::queue<uint32_t> faces_to_classify;
-   std::vector<bool> uncut_clay_face_classified(m_clay.faces().size(), false);
-   std::vector<char> status_uncut_clay_face(m_clay.faces().size(), 0);
-   for (size_t ff=0; ff<numNewClayFaces; ++ff)
-   {
-      // Find a successfully classified face
-      char cur_status = cut_clay_face_status[ff];
-      if (cur_status != 0)
-      {
-         for (size_t ii=0; ii<3; ++ii)
-         {
-            uint32_t idx = canonicalVertexIndex(new_clay_faces[ff].v[ii]);
-            auto itr = adjacency_map.find(idx);
-            if (itr != adjacency_map.end())
-            {
-               for (auto itr2=itr->second.begin(); itr2!=itr->second.end(); ++itr2)
-               {
-                  if (*itr2 < numNewClayFaces)
-                  {
-                     // don't add cut (i.e. classified) faces
-                     continue;
-                  }
-                  if (uncut_clay_face_classified[*itr2-numNewClayFaces])
-                  {
-                     // don't add already-classified uncut faces
-                     continue;
-                  }
-                  faces_to_classify.push(*itr2);
-               }
-            }
-         }
-
-         // go through the queue until we're finished
-         while (!faces_to_classify.empty())
-         {
-            uint32_t f_idx = faces_to_classify.front();
-            faces_to_classify.pop();
-
-            if (f_idx < numNewClayFaces)
-            {
-               // don't examine cut (i.e. classified) faces
-               continue;
-            }
-            if (uncut_clay_face_classified[f_idx-numNewClayFaces])
-            {
-               // don't add already-classified uncut faces
-               continue;
-            }
-
-            status_uncut_clay_face[f_idx-numNewClayFaces] = cur_status;
-            uncut_clay_face_classified[f_idx-numNewClayFaces] = true;
-         }
-      }
-   }
-
    //
    // Assemble two meshes from cut clay
    //
@@ -1651,12 +1497,24 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
    }
 
    // Dump cut faces to obj
-
    std::cout << "# --- above faces --- " << std::endl;
    for (uint32_t ii=0; ii<new_clay_faces.size(); ++ii)
    {
-      if (cut_clay_face_status[ii] > 0)
+      if (clay_cut_face_status[ii] > 0)
       {
+         {
+            Eigen::Vector3d p[3];
+            for (uint32_t vv=0; vv<3; ++vv)
+            {
+               const auto& pt = new_clay_faces[ii].v[vv];
+               if ((pt.parent == kClay) || (pt.parent == kBoth))
+                  p[vv] = m_clay.vertices()[pt.idx];
+               else if (pt.parent == kNew)
+                  p[vv] = m_newPointPositions[pt.idx];
+            }
+            std::cout << "# aspect ratio: " << triangleAspectRatio(p[0],p[1],p[2]) << std::endl;
+         }
+
          std::cout << "f ";
          for (uint32_t jj=0; jj<3; ++jj)
          {
@@ -1672,7 +1530,7 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
    // Dump uncut faces to obj
    for (uint32_t ii=0; ii<m_clay.faces().size(); ++ii)
    {
-      if (status_uncut_clay_face[ii] > 0)
+      if (clay_uncut_face_status[ii] > 0)
       {
          std::cout << "f ";
          for (uint32_t jj=0; jj<3; ++jj)
@@ -1686,10 +1544,24 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
    }
 
    std::cout << "# --- below faces --- " << std::endl;
+   // cut faces
    for (uint32_t ii=0; ii<new_clay_faces.size(); ++ii)
    {
-      if (cut_clay_face_status[ii] < 0)
+      if (clay_cut_face_status[ii] < 0)
       {
+         {
+            Eigen::Vector3d p[3];
+            for (uint32_t vv=0; vv<3; ++vv)
+            {
+               const auto& pt = new_clay_faces[ii].v[vv];
+               if ((pt.parent == kClay) || (pt.parent == kBoth))
+                  p[vv] = m_clay.vertices()[pt.idx];
+               else if (pt.parent == kNew)
+                  p[vv] = m_newPointPositions[pt.idx];
+            }
+            std::cout << "# aspect ratio: " << triangleAspectRatio(p[0],p[1],p[2]) << std::endl;
+         }
+
          std::cout << "f ";
          for (uint32_t jj=0; jj<3; ++jj)
          {
@@ -1702,10 +1574,10 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
          std::cout << std::endl;
       }
    }
-   // Dump uncut faces to obj
+   // Uncut faces
    for (uint32_t ii=0; ii<m_clay.faces().size(); ++ii)
    {
-      if (status_uncut_clay_face[ii] < 0)
+      if (clay_uncut_face_status[ii] < 0)
       {
          std::cout << "f ";
          for (uint32_t jj=0; jj<3; ++jj)
@@ -1717,10 +1589,8 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
       }
 
    }
+#endif
 
 }
-
-
-
 
 }  // namespace CSG

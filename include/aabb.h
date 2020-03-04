@@ -119,7 +119,7 @@ class AABBNode
 //
 // The dynamic AABB tree is a hierarchical data structure that can be used to
 // efficiently query overlaps between objects of arbitrary shape and size that
-// lie inside of a simulation box.
+// lie inside of a bounding box.
 //
 class AABBTree
 {

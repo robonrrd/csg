@@ -55,17 +55,7 @@ enum TriTriIntersectionType
    kPointEdge,
    kEdgeEdge
 };
-typedef std::pair<uint32_t, uint32_t> Edge;
 
-struct EdgeHash
-{
-    std::size_t operator()(Edge const& e) const noexcept
-    {
-        std::size_t h1 = std::hash<uint32_t>{}(e.first);
-        std::size_t h2 = std::hash<uint32_t>{}(e.second);
-        return h1 ^ (h2 << 1);
-    }
-};
 
 class TriangleIntersection
 {
@@ -108,7 +98,6 @@ class CSGEngine
  private:
    // Member functions
    const Eigen::Vector3d& ipointPos(const IPointRef& ref) const;
-   Edge makeEdge(const IPointRef& a, const IPointRef& b) const;
 
    std::vector<IPoint> convertIntersectionToIpoints(const TriangleIntersection& ix,
                                                     uint32_t clay_face_idx,
@@ -119,6 +108,10 @@ class CSGEngine
 
    std::vector<char> classifyCutFaces(const std::vector<IFace>& in_faces, IParent which);
 
+   void classifyFaces(IParent which_surface, const std::vector<IFace>& new_faces,
+                      const std::vector<bool>& is_face_cut,
+                      std::vector<char>& cut_face_status,
+                      std::vector<char>& uncut_face_status);
 
    // Data members
    const TriMesh& m_clay;
