@@ -55,7 +55,17 @@ enum TriTriIntersectionType
    kPointEdge,
    kEdgeEdge
 };
+typedef std::pair<uint32_t, uint32_t> Edge;
 
+struct EdgeHash
+{
+    std::size_t operator()(Edge const& e) const noexcept
+    {
+        std::size_t h1 = std::hash<uint32_t>{}(e.first);
+        std::size_t h2 = std::hash<uint32_t>{}(e.second);
+        return h1 ^ (h2 << 1);
+    }
+};
 
 class TriangleIntersection
 {
@@ -98,10 +108,12 @@ class CSGEngine
  private:
    // Member functions
    const Eigen::Vector3d& ipointPos(const IPointRef& ref) const;
+   Edge makeEdge(const IPointRef& a, const IPointRef& b) const;
 
    std::vector<IPoint> convertIntersectionToIpoints(const TriangleIntersection& ix,
                                                     uint32_t clay_face_idx,
                                                     uint32_t knife_face_idx);
+   uint32_t canonicalVertexIndex(const IPointRef& ref) const;
    std::vector<IFace> retriangulate(const TriMesh& mesh, IParent which_mesh, uint32_t fidx,
                                     const std::vector<uint32_t>& new_vert_indices) const;
 

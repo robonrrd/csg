@@ -854,7 +854,6 @@ double AABBTree::computeSurfaceAreaRatio() const
 
 void AABBTree::validate() const
 {
-#ifndef NDEBUG
     validateStructure(root);
     validateMetrics(root);
 
@@ -870,7 +869,6 @@ void AABBTree::validate() const
 
     assert(getHeight() == computeHeight());
     assert((nodeCount + freeCount) == nodeCapacity);
-#endif
 }
 
 void AABBTree::rebuild()
@@ -1004,16 +1002,14 @@ void AABBTree::validateMetrics(uint32_t node) const
     validateMetrics(right);
 }
 
-
-
-std::vector<std::pair<uint32_t, uint32_t>> AABBTree::intersect(const AABBTree& tree)
+std::unordered_set<std::pair<uint32_t, uint32_t>> AABBTree::intersect(const AABBTree& tree)
 {
-    std::vector<std::pair<uint32_t, uint32_t>> intersections;
+    std::unordered_set<std::pair<uint32_t, uint32_t>> intersections;
     for (uint32_t ii=0; ii<numObjects(); ++ii)
     {
         std::vector<uint32_t> interx = tree.query(getAABB(ii));
         for (const auto& ix : interx)
-            intersections.push_back(std::make_pair(ii, ix));
+            intersections.emplace(std::make_pair(ii, ix));
     }
 
     std::cout << intersections.size() << " potential intersections found"

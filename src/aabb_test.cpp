@@ -12,7 +12,7 @@ main(int argc, char *argv[])
 
    if (argc != 2)
    {
-       std::cout << "Usage: csg_test OBJ_FILE" << std::endl;
+       std::cout << "Usage: aabb_test OBJ_FILE" << std::endl;
        return 0;
    }
 
@@ -26,5 +26,23 @@ main(int argc, char *argv[])
    AABBTree tree = input.createAABBTree();
    std::cout << " ..done" << std::endl;
 
-   std::vector<std::pair<uint32_t, uint32_t>> ix = tree.intersect(tree);
+   tree.validate();
+
+   //std::vector<std::pair<uint32_t, uint32_t>> ix = tree.intersect(tree);
+   std::cout << "numObjects = " << tree.numObjects() << "  "
+             << "height = " << tree.getHeight() << "  "
+             << "node count = " << tree.getNodeCount() << "  "
+             << std::endl;
+
+
+   for (size_t ii=0; ii<tree.numObjects(); ++ii)
+   {
+       auto aabb = tree.getAABB(ii);
+       std::cout << "AABB " << ii << "  "
+                 << "c: " << aabb.center().transpose() << "  "
+                 << "l: " << aabb.lowerBound.transpose() << "  "
+                 << "u: " << aabb.upperBound.transpose() << "  "
+                 << "s: " << aabb.surfaceArea() << "  "
+                 << std::endl;
+   }
 }

@@ -13,7 +13,7 @@ the cut triangles. However, for this public implementation I am using
 personal and research use but not for commercial use, and does not fall under the
 license that the rest of this code uses.
 
-If you wish to create the Python bindings or Blender integration, 
+If you wish to create the Python bindings or the Blender integration,
 [SWIG](http://www.swig.org/) also must be installed.
 
 ## To Build ##
@@ -42,4 +42,3 @@ are above or below the face that cut them. We then flood-fill the membership amo
 the uncut triangles.
 6. Generate the output meshes by combining the four mesh fragment results (clay above the knife, clay below the knife, knife above the clay, knife below the clay) in
 various ways, depending on the operation we desire.
-

@@ -7,6 +7,7 @@
 #include <limits>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #pragma once
@@ -14,6 +15,20 @@
 /// Null node flag.
 constexpr uint32_t NULL_NODE = std::numeric_limits<uint32_t>::max();
 
+// custom specialization of std::hash for pairs of ints, be injected in std
+// namespace
+namespace std
+{
+    template<> struct hash< std::pair<uint32_t, uint32_t> >
+    {
+        std::size_t operator()(std::pair<uint32_t, uint32_t> const& s) const noexcept
+        {
+            std::size_t h1 = std::hash<uint32_t>{}(s.first);
+            std::size_t h2 = std::hash<uint32_t>{}(s.second);
+            return h1 ^ (h2 << 1); // or use boost::hash_combine (see Discussion)
+        }
+    };
+}
 
 // Axis-aligned bounding box
 class AABB
@@ -160,7 +175,7 @@ class AABBTree
 
    // Intersect this AABB with a second, returning a list of pairs of
    // box intersections
-   std::vector< std::pair<uint32_t, uint32_t> > intersect(const AABBTree& tree);
+   std::unordered_set< std::pair<uint32_t, uint32_t> > intersect(const AABBTree& tree);
 
    // Get the object's AABB.
    const AABB& getAABB(uint32_t index) const;
