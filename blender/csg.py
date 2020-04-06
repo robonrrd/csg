@@ -36,19 +36,34 @@ class CSG(bpy.types.Operator):
         clay = None
         knife = None
 
-        # Blender objects
+        # Get selected blender objects.
+        # There doesn't appear to be any way to get the blender
+        # selection in order it was selected (!!!), so we need to
+        # work around it.
+        # We assume that the current active selection is the
+        # knife (i.e. the clay is selected first)
+
         clay_obj = None
         knife_obj = None
-        for obj in scene.objects:
-            if obj.type in ['MESH']:
-                if clay_obj is None:
-                    print("Using",obj.name,"as the clay")
-                    clay_obj = obj
-                elif knife_obj is None:
-                    print("Using",obj.name,"as the knife")
-                    knife_obj = obj
-                else:
-                    break
+        selected = bpy.context.selected_objects
+        num_selected = len(selected)
+        if num_selected != 2:
+            raise Error("CSG need exactly two meshes selected (clay first, knife second)")
+
+        if bpy.context.active_object == selected[1]:
+            clay_obj = selected[0]
+        else:
+            clay_obj = selected[1]
+        knife_obj = bpy.context.active_object
+
+        if clay_obj.type in ['MESH']:
+            print("Using",clay_obj.name,"as the clay")
+        else:
+            raise Error(clay_obj.name," is not a mesh")
+        if knife_obj.type in ['MESH']:
+            print("Using",knife_obj.name,"as the knife")
+        else:
+            raise Error(knife_obj.name," is not a mesh")
 
         clay = build_trimesh_from_obj(clay_obj)
         knife = build_trimesh_from_obj(knife_obj)
@@ -58,9 +73,8 @@ class CSG(bpy.types.Operator):
             A = pycsg.TriMesh()
             B = pycsg.TriMesh()
             engine.construct(pycsg.kDifference, True, A, B)
-
-            build_blender_mesh_from_trimesh(A)
-            build_blender_mesh_from_trimesh(B)
+            build_blender_mesh_from_trimesh(A, "above")
+            build_blender_mesh_from_trimesh(B, "below")
 
         return {'FINISHED'}            # this lets blender know the operator finished successfully.
 
@@ -88,18 +102,81 @@ def build_trimesh_from_obj(in_obj):
     return mm
 
 
-def build_blender_mesh_from_trimesh(trimesh):
-    tm_verts = trimesh.vertices()
-    print( type(tm_verts) )
-    print( dir(tm_verts) )
-    print( tm_verts.size() )
-    #print("# verts", len(tm_verts))
-    #print("  verts", tm_verts)
+def build_blender_mesh_from_trimesh(trimesh, name):
+    tm_verts = trimesh.mesh_vertices()
+    num_verts = len(tm_verts)//3
 
-    #tm_faces = trimesh.faces()
-    #print("# faces", len(tm_faces))
-    #print("  faces", tm_faces)
+    tm_faces = trimesh.mesh_faces()
+    num_faces = len(tm_faces)//3
 
+    print( "# vertices =", num_verts )
+    print("# faces", num_faces)
+
+    if num_verts == 0 or num_faces == 0:
+        print("build_blender_mesh_from_trimesh: Empty mesh")
+        return
+
+    verts_data = []
+    for i in range(num_verts):
+        verts_data.append( (tm_verts[3*i], tm_verts[3*i+1], tm_verts[3*i+2]) )
+    faces_data = []
+    for i in range(num_faces):
+        faces_data.append( (tm_faces[3*i], tm_faces[3*i+1], tm_faces[3*i+2]) )
+
+    #print( "verts", verts_data )
+    #print( "faces", faces_data )
+
+    # create new mesh structure
+    mesh = bpy.data.meshes.new(str(name+"_mesh"))
+    mesh.from_pydata(verts_data, [], faces_data)
+    mesh.update()
+
+    new_object = bpy.data.objects.new(str(name+"_object"), mesh)
+    new_object.data = mesh
+
+    scene = bpy.context.scene
+    scene.objects.link(new_object)
+    scene.objects.active = new_object
+    new_object.select = True
+
+
+
+    '''
+    # works
+    vertsData = [(-1.509843, -1.525169, 0.433532),
+                (-1.509843, 0.474831, 0.433532),
+                (-1.509843, -1.525169, -1.566468),
+                (-1.509843, 0.474831, -1.566468),
+                (0.490157, -1.525169, 0.433532),
+                (0.490157, 0.474831, 0.433532),
+                (0.490157, -1.525169, -1.566468),
+                (0.490157, 0.474831, -1.566468)]
+    facesData = [(3, 2, 0), # 4 3 1
+             (7, 6, 2), # 8 7 3
+             (5, 3, 6), # 6 5 7
+             (1, 0, 4), # 2 1 5
+             (2, 6, 4), # 3 7 5
+             (7, 3, 1), # 8 4 2
+             (1, 3, 0), # 2 4 1
+             (3, 7, 2), # 4 8 3
+             (7, 5, 6), # 8 6 7
+             (5, 1, 4), # 6 2 5
+             (0, 2, 4), # 1 3 5
+             (5, 7, 1)] # 6 8 2
+
+    # create new mesh structure
+    mesh = bpy.data.meshes.new("myMesh_mesh")
+    mesh.from_pydata(vertsData, [], facesData)
+    mesh.update()
+
+    new_object = bpy.data.objects.new("myMesh_object", mesh)
+    new_object.data = mesh
+
+    scene = bpy.context.scene
+    scene.objects.link(new_object)
+    scene.objects.active = new_object
+    new_object.select = True
+    '''
 
     '''
     verts = []

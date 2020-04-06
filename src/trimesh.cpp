@@ -88,6 +88,40 @@ TriMesh::TriMesh(const std::vector<double>& in_vertices, const std::vector<unsig
       }
 }
 
+#ifndef SWIG
+TriMesh::TriMesh(
+    const std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>>& in_vertices,
+    const std::vector<Eigen::Vector3i, Eigen::aligned_allocator<Eigen::Vector3i>>& in_faces)
+    : m_vertices(in_vertices)
+{
+    const uint32_t numFaces = in_faces.size()/3;
+    m_faces.resize(numFaces);
+    for (uint32_t ii=0; ii<numFaces; ++ii)
+    {
+        for (uint32_t jj=0; jj<3; ++jj)
+        {
+            m_faces[ii].m_v[jj] = in_faces[ii][jj];
+            m_faces[ii].m_n[jj] = NO_ENTRY;
+            m_faces[ii].m_uv[jj] = NO_ENTRY;
+        }
+    }
+}
+
+
+void
+TriMesh::setFaces(const std::vector<Eigen::Vector3i, Eigen::aligned_allocator<Eigen::Vector3i>>& in)
+{
+    const size_t numFaces = in.size();
+    m_faces = std::vector<Triangle>(numFaces);
+    for (size_t ii=0; ii<numFaces; ++ii)
+    {
+        for (size_t jj=0; jj<3; ++jj)
+        {
+            m_faces[ii].m_v[jj] = in[ii][jj];
+        }
+    }
+}
+#endif
 
 uint32_t TriMesh::loadOBJ(const std::string& path)
 {
@@ -209,6 +243,27 @@ uint32_t TriMesh::loadOBJ(const std::string& path)
    return m_vertices.size();
 }
 
+std::ostream &operator<<( std::ostream &output, const TriMesh &M )
+{
+    const auto& vertices = M.vertices();
+    const auto& faces = M.faces();
+
+    output << "# libcsg trimesh" << std::endl
+           << "# " << vertices.size() << " vertices" << std::endl;
+    for (const auto& v : vertices)
+    {
+        output << "v " << v[0] << " " << v[1] << " " << v[2] << std::endl;
+    }
+
+    output << std::endl << "# " << faces.size() << " triangles" << std::endl;
+    for (const auto& f : faces)
+    {
+        output << "f " << f.m_v[0]+1 << " " << f.m_v[1]+1 << " " << f.m_v[2]+1 << std::endl;
+    }
+
+    return output;
+}
+
 
 AABBTree TriMesh::createAABBTree() const
 {
@@ -247,9 +302,8 @@ Eigen::Vector3d TriMesh::faceNormalImpl(uint32_t f) const
 }
 
 
-#ifdef SWIG
 // Non-Eigen accessors for Python wrapping
-std::vector<double>& TriMesh::vertices() const
+std::vector<double> TriMesh::mesh_vertices() const
 {
    std::vector<double> out(m_vertices.size()*3);
    for (uint32_t ii=0; ii<m_vertices.size(); ++ii)
@@ -258,8 +312,7 @@ std::vector<double>& TriMesh::vertices() const
    return out;
 }
 
-
-std::vector<double>& TriMesh::normals() const
+std::vector<double> TriMesh::mesh_normals() const
 {
    std::vector<double> out(m_normals.size()*3);
    for (uint32_t ii=0; ii<m_normals.size(); ++ii)
@@ -268,28 +321,30 @@ std::vector<double>& TriMesh::normals() const
    return out;
 }
 
-// std::vector<double> TriMesh::faceNormal(uint32_t f) const
-// {
-//    const Eigen::Vector3d nn = faceNormalImpl(f);
-
-//    return std::vector<double>{nn[0], nn[1], nn[2]};
-// }
-
-std::vector<double>& TriMesh::uvs() const
+std::vector<double> TriMesh::mesh_uvs() const
 {
    std::vector<double> out(m_uvs.size()*2);
    for (uint32_t ii=0; ii<m_uvs.size(); ++ii)
       for (uint32_t jj=0; jj<2; ++jj)
-         out[ii*3+jj] = m_uvs[ii][jj];
+         out[ii*2+jj] = m_uvs[ii][jj];
    return out;
 }
-#else
 
+std::vector<unsigned int> TriMesh::mesh_faces() const
+{
+   const size_t num_faces = m_faces.size();
+   std::vector<unsigned int> out(num_faces*3);
+   for (uint32_t ii=0; ii<num_faces; ++ii)
+      for (uint32_t jj=0; jj<3; ++jj)
+         out[ii*3+jj] = m_faces[ii].m_v[jj];
+   return out;
+}
+
+#ifndef SWIG
 Eigen::Vector3d TriMesh::faceNormal(uint32_t f) const
 {
     return faceNormalImpl(f);
 }
-
 #endif
 
 }  // namespace CSG
