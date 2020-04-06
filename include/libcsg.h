@@ -113,6 +113,11 @@ class CSGEngine
                       std::vector<char>& cut_face_status,
                       std::vector<char>& uncut_face_status);
 
+   TriMesh assembleMesh(IParent which_surface, char side,
+                        const std::vector<IFace>& new_faces,
+                        const std::vector<char>& cut_face_status,
+                        const std::vector<char>& uncut_face_status);
+
    // Data members
    const TriMesh& m_clay;
    const TriMesh& m_knife;

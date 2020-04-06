@@ -21,10 +21,10 @@ extern "C"
 namespace CSG
 {
 
-// Magic numbers and tolerances. We seek to minimize the number of special
-// constants as they create edge cases and problems. However, sometimes they're
-// necessary.
-// All magic numbers are expressed in terms of 'units in the last place'
+// Magic numbers and tolerances.
+// We seek to minimize the number of special constants as they create edge cases
+// and problems. All magic numbers are expressed in terms of 'units in the last
+// place'
 constexpr uint32_t ALPHA_ULP = 2;
 constexpr uint32_t POINT_ULP = 2;
 
@@ -783,7 +783,7 @@ std::vector<IPoint> CSGEngine::convertIntersectionToIpoints(const TriangleInters
       {
          if (point_almost_equal(ix.p[jj], m_clay.vertices()[ct.m_v[ii]]))
          {
-            std::cout << "ix " << jj << " is same as clay " << ct.m_v[ii] << std::endl;
+            //std::cout << "ix " << jj << " is same as clay " << ct.m_v[ii] << std::endl;
             clay_v_idx = ii;
             break;
          }
@@ -795,7 +795,7 @@ std::vector<IPoint> CSGEngine::convertIntersectionToIpoints(const TriangleInters
       {
          if (point_almost_equal(ix.p[jj], m_knife.vertices()[kt.m_v[ii]]))
          {
-            std::cout << "ix " << jj << " is same as knife " << kt.m_v[ii] << std::endl;
+            //std::cout << "ix " << jj << " is same as knife " << kt.m_v[ii] << std::endl;
             knife_v_idx = ii;
             break;
          }
@@ -1055,7 +1055,7 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
       }
    }
 
-#if 0
+#if DEBUG
    // dump raw output
    std::cout << "# raw output from triangulate" << std::endl;
    std::cout << "v " << p0.transpose() << std::endl;
@@ -1087,8 +1087,8 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
 }
 
 
-std::vector<char>  CSGEngine::classifyCutFaces(const std::vector<IFace>& in_faces,
-                                               IParent which_surface)
+std::vector<char> CSGEngine::classifyCutFaces(const std::vector<IFace>& in_faces,
+                                              IParent which_surface)
 {
    // status:
    // -1 - below
@@ -1096,10 +1096,12 @@ std::vector<char>  CSGEngine::classifyCutFaces(const std::vector<IFace>& in_face
    //  1 - above
    const size_t num_faces = in_faces.size();
    std::vector<char> status(num_faces, 0);
-   //uint32_t num_unknown = 0;
+
    for (size_t fidx = 0; fidx < num_faces; ++fidx)
    {
       const IFace& ff = in_faces[fidx];
+
+      std::cout << "classifying face " << fidx << " cut from face " << ff.orig << std::endl;
 
       // Find a face on the opposite surface (the one that cut this one) to
       // compare against for above/belowness
@@ -1120,6 +1122,13 @@ std::vector<char>  CSGEngine::classifyCutFaces(const std::vector<IFace>& in_face
             }
          }
       }
+      std::cout << " testing against ";
+      if (testFace.parent == kKnife)
+         std::cout << "knife face ";
+      else
+         std::cout << "clay face ";
+      std::cout << testFace.idx << std::endl;
+
       // TODO: precompute or lazily compute face normals
       Eigen::Vector3d normal;
       Eigen::Vector3d center;
@@ -1144,7 +1153,6 @@ std::vector<char>  CSGEngine::classifyCutFaces(const std::vector<IFace>& in_face
       {
          const Eigen::Vector3d vpos = ipointPos(ff.v[ii]);
          face_center += vpos;
-         face_center = face_center / 3.0;
 
          if (ff.v[ii].parent != kNew) // new points are on the border, so can't be tested
          {
@@ -1153,27 +1161,40 @@ std::vector<char>  CSGEngine::classifyCutFaces(const std::vector<IFace>& in_face
             {
                vote_above++;
                height_above += nn;
+               std::cout << "  vertex " << ii << " above by " << height_above << std::endl;
             }
             else if (nn < 0)
             {
                vote_below++;
                height_below -= nn;
+               std::cout << "  vertex " << ii << " below by " << height_below << std::endl;
+            }
+            else
+            {
+                std::cout << "  vertex " << ii << " exactly on the face." << std::endl;
             }
          }
       }
 
       // Test triangle center
+      face_center /= 3.0;
+      std::cout << " center pos: " << face_center.transpose() << std::endl;
       const double nn = (face_center - center).dot(normal);
       if (nn > 0)
       {
          vote_above++;
          height_above += nn;
+         std::cout << "  center above by " << height_above << std::endl;
       }
       else if (nn < 0)
       {
          vote_below++;
          height_below -= nn;
+         std::cout << "  center below by " << height_below << std::endl;
       }
+
+      std::cout << "votes:  above=" << vote_above << "  below=" << vote_below
+                << std::endl;
 
       if (vote_above > vote_below)
       {
@@ -1197,13 +1218,9 @@ std::vector<char>  CSGEngine::classifyCutFaces(const std::vector<IFace>& in_face
          {
             status[fidx] = 0;
          }
-         std::cout << "votes:  above=" << vote_above << "  below=" << vote_below
-                   << std::endl;
-         //num_unknown++;
       }
    }
 
-   //std::cout << num_unknown << " unclassified cut faces remain" << std::endl;
    return status;
 }
 
@@ -1215,8 +1232,9 @@ void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& n
 {
    const TriMesh& original_mesh = ( (which_surface == kClay) ? m_clay : m_knife );
 
-   // Classify cut faces into 'above' and 'below' sets, depending on if they are
-   // above or below the faces that cut them (with respect to that face's normal)
+   // Classify cut (new) faces into 'above' and 'below' sets, depending on if
+   // they are above or below the faces that cut them (with respect to that
+   // face's normal)
    const size_t numNewFaces = new_faces.size();
    cut_face_status = classifyCutFaces(new_faces, which_surface);
 
@@ -1271,22 +1289,6 @@ void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& n
       }
    }
 
-#if 0
-   // debug dump of adjacency map
-   std::cout << "adjacency map for clay" << std::endl;
-   for (auto itr=adjacency_map.begin(); itr!=adjacency_map.end(); ++itr)
-   {
-      std::cout << "Vertex " << itr->first << ": faces ";
-      for (auto itr2=itr->second.begin(); itr2!=itr->second.end(); ++itr2)
-      {
-         std::cout << *itr2 << " ";
-      }
-      std::cout << std::endl;
-   }
-   // end debug dump
-#endif
-
-   const size_t numUncutFaces = original_mesh.faces().size() - new_faces.size();
    std::queue<uint32_t> faces_to_classify;
    std::vector<bool> uncut_face_classified(original_mesh.faces().size(), false);
    uncut_face_status.clear();
@@ -1342,7 +1344,191 @@ void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& n
          }
       }
    }
+
+   std::cout << "classification results, uncut (original) faces: " << std::endl;
+   for (int ii=0; ii<uncut_face_status.size(); ++ii)
+      std::cout << " " << ii << " : " << int(uncut_face_status[ii]) << std::endl;
 }
+
+
+TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
+                                const std::vector<IFace>& new_faces,
+                                const std::vector<char>& cut_face_status,
+                                const std::vector<char>& uncut_face_status)
+{
+   const TriMesh& original_mesh = ( (which_surface == kClay) ? m_clay : m_knife );
+   const TriMesh& opposite_mesh = ( (which_surface == kClay) ? m_knife : m_clay );
+
+   const size_t num_original_points = original_mesh.vertices().size();
+   const size_t num_opposite_points = opposite_mesh.vertices().size();
+   const size_t num_new_points = m_newPoints.size();
+   const size_t num_total_points = num_original_points + num_opposite_points + num_new_points;
+   const double radius = 1e-06; // TODO: express in ULP
+
+   //
+   // Weld vertices using an AABB tree
+   //
+
+   // 'vertex_map' maps from the unwelded vertex numbering to the welded
+   // numbering
+   std::vector<uint32_t> vertex_map(num_total_points, UINT32_MAX);
+   AABBTree tree(0.05, num_total_points);
+
+   // Add original mesh vertices
+   for (uint32_t ii=0; ii<num_original_points; ++ii)
+   {
+      tree.addSphere(ii, original_mesh.vertices()[ii], radius);
+      // we declare that 'original_mesh' vertices come first and therefore are always
+      // used if a duplicate point shows up
+      vertex_map[ii] = ii;
+   }
+
+   // Add opposite mesh vertices
+   for (uint32_t ii=0; ii<num_opposite_points; ++ii)
+   {
+      const uint32_t idx = ii+num_original_points;
+      tree.addSphere(idx, opposite_mesh.vertices()[ii], radius);
+      vertex_map[idx] = idx;
+   }
+
+   // Add new points created by intersections
+   for (uint32_t ii=0; ii<num_new_points; ++ii)
+   {
+      const uint32_t idx = ii+num_original_points+num_opposite_points;
+      tree.addSphere(idx, m_newPointPositions[ii], radius);
+   }
+
+   // Query the tree with every new point, to detect duplicates
+   for (uint32_t ii=0; ii<num_new_points; ++ii)
+   {
+      const size_t idx = ii+num_original_points+num_opposite_points;
+      auto dupes = tree.query(idx);
+      if (dupes.size() == 0)
+      {
+         vertex_map[idx] = idx;
+      }
+      else
+      {
+         vertex_map[idx] = dupes[0]; // use the first
+      }
+   }
+
+   std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> vertices;
+   std::vector<Eigen::Vector3i, Eigen::aligned_allocator<Eigen::Vector3i>> faces;
+
+   std::vector<uint32_t> used_map(num_total_points, UINT32_MAX);
+
+   //  original faces that were not cut
+   uint32_t count = 0;
+   for (uint32_t ii=0; ii<original_mesh.faces().size(); ++ii)
+   {
+      std::cout << "uncut_face_status[" << ii << "] = " << int(side) << std::endl;
+      if (uncut_face_status[ii] == side)
+      {
+         Eigen::Vector3i face;
+         for (uint32_t jj=0; jj<3; ++jj)
+         {
+            uint32_t idx = original_mesh.faces()[ii].m_v[jj];
+            if (used_map[idx] == UINT32_MAX)
+            {
+               std::cout << "of new vertex " << idx << " -> " << count << std::endl;
+               vertices.push_back( original_mesh.vertices()[idx] );
+               face[jj] = count;
+               used_map[idx] = count;
+               count++;
+            }
+            else
+            {
+               std::cout << "of seen vertex " << idx << " -> " << used_map[idx] << std::endl;
+               face[jj] = used_map[idx];
+            }
+         }
+         std::cout << "o face: " << face[0] << " " << face[1] << " " << face[2] << std::endl;
+         faces.push_back(face);
+      }
+   }
+
+   // new faces, resulting from cuts
+   for (uint32_t ii=0; ii<new_faces.size(); ++ii)
+   {
+      if (cut_face_status[ii] == side)
+      {
+         Eigen::Vector3i face;
+         for (uint32_t jj=0; jj<3; ++jj)
+         {
+            const auto& pt = new_faces[ii].v[jj];
+            std::cout << "cvi = " << canonicalVertexIndex(pt) << std::endl;
+            uint32_t idx = vertex_map[canonicalVertexIndex(pt)];
+            std::cout << "idx = " << idx << std::endl;
+            if (used_map[idx] == UINT32_MAX)
+            {
+               std::cout << "cf new vertex " << idx << " -> " << count << std::endl;
+               vertices.push_back(ipointPos(pt));
+               face[jj] = count;
+               used_map[idx] = count;
+               count++;
+            }
+            else
+            {
+               std::cout << "cf seen vertex " << idx << " -> " << used_map[idx] << std::endl;
+               face[jj] = used_map[idx];
+            }
+         }
+         std::cout << "c face: " << face[0] << " " << face[1] << " " << face[2] << std::endl;
+         faces.push_back(face);
+      }
+   }
+
+
+#if 0
+   // Step through the faces to note which vertices are actually used
+   std::vector<uint32_t> used_map(num_new_points+num_original_points, UINT32_MAX);
+   std::vector<uint32_t> used_vertices;
+   uint32_t count = 0;
+
+   //  original faces that were not cut
+   for (uint32_t ii=0; ii<original_mesh.faces().size(); ++ii)
+   {
+      if (uncut_face_status[ii] == side)
+      {
+         for (uint32_t jj=0; jj<3; ++jj)
+         {
+            uint32_t idx = original_mesh.faces()[ii].m_v[jj];
+            if (used_map[idx] == UINT32_MAX)
+            {
+               used_map[idx] = count;
+               used_vertices.push_back(idx);
+               count++;
+            }
+         }
+      }
+   }
+
+   // new faces, resulting from cuts
+   for (uint32_t ii=0; ii<new_faces.size(); ++ii)
+   {
+      if (cut_face_status[ii] == side)
+      {
+         {
+            for (uint32_t vv=0; vv<3; ++vv)
+            {
+               const auto& pt = new_faces[ii].v[vv];
+               uint32_t idx = canonicalVertexIndex(pt);
+               if (used_map[idx] == UINT32_MAX)
+               {
+                  used_map[idx] = count;
+                  used_vertices.push_back(idx);
+                  count++;
+               }
+            }
+         }
+      }
+   }
+#endif
+
+   return TriMesh(vertices, faces);
+}
+
 
 
 void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriMesh& out_B)
@@ -1472,6 +1658,8 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
    classifyFaces(kClay, new_clay_faces, is_clay_face_cut, clay_cut_face_status,
                  clay_uncut_face_status);
 
+   // We only need to partition the knife mesh's faces if we're going to put
+   // caps on the two halves of the cut clay mesh
    std::vector<char> knife_cut_face_status;
    std::vector<char> knife_uncut_face_status;
    if (cap)
@@ -1479,6 +1667,14 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
       classifyFaces(kKnife, new_knife_faces, is_knife_face_cut, knife_cut_face_status,
                     knife_uncut_face_status);
    }
+
+   TriMesh clay_above = assembleMesh(kClay, 1, new_clay_faces, clay_cut_face_status,
+                                     clay_uncut_face_status);
+
+   TriMesh clay_below = assembleMesh(kClay, -1, new_clay_faces, clay_cut_face_status,
+                                     clay_uncut_face_status);
+
+   //std::cout << clay_above << std::endl;
 
 #if 0
    //
@@ -1591,6 +1787,11 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
    }
 #endif
 
+   // Fill in output structures
+   out_A.setVertices(clay_above.vertices());
+   out_A.setFaces(clay_above.faces());
+   out_B.setVertices(clay_below.vertices());
+   out_B.setFaces(clay_below.faces());
 }
 
 }  // namespace CSG

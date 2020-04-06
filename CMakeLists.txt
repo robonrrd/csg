@@ -17,6 +17,8 @@ add_library(csg SHARED
    src/triangle.c
 )
 
+SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -g")
+
 # Set the location for library installation
 #install(TARGETS csg DESTINATION lib)
 
@@ -31,6 +33,10 @@ target_link_libraries(csg_test ${PROJECT_LINK_LIBS})
 # AABB_TEST
 add_executable(aabb_test src/aabb_test.cpp)
 target_link_libraries(aabb_test ${PROJECT_LINK_LIBS})
+
+# Reading and writing OBJ files test
+add_executable(obj_test src/obj_test.cpp)
+target_link_libraries(obj_test ${PROJECT_LINK_LIBS})
 
 # 'triangle' code test
 add_executable(triangle_test src/triangle_test.cpp)
