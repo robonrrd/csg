@@ -42,7 +42,7 @@ class AABB
 
    // Get the surface area of the box.
    const double surfaceArea() const { return m_surfaceArea; }
-   double& surfaceArea() { return m_surfaceArea; }
+   void surfaceArea(double a) { m_surfaceArea = a; }
 
    // Merge two AABBs into this one.
    void merge(const AABB&, const AABB&);
@@ -54,9 +54,9 @@ class AABB
    bool overlaps(const AABB&, bool touchIsOverlap) const;
 
    // Compute the center of the AABB.
-   const Eigen::Vector3d computeCenter() const;
+   const Eigen::Vector3d computeCenter()const;
    const Eigen::Vector3d center() const { return m_center; }
-   Eigen::Vector3d& center() { return m_center; }
+   void center(const Eigen::Vector3d& c) { m_center = c; }
 
    // Lower bound of AABB
    Eigen::Vector3d lowerBound;
@@ -252,4 +252,3 @@ class AABBTree
    // Assert that the sub-tree (with root 'root_index') has valid metrics.
    void validateMetrics(uint32_t root_index) const;
 };
-
