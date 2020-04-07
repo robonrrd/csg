@@ -38,4 +38,7 @@ main(int argc, char *argv[])
    std::cout << "output A:" << std::endl
              << A
              << std::endl;
+   std::cout << "output B:" << std::endl
+             << B
+             << std::endl;
 }
