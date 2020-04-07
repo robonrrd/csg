@@ -3,6 +3,7 @@
 //
 //
 #include <assert.h>
+#include <iomanip>      // std::setprecision
 #include <queue>
 #include <set>
 #include <stack>
@@ -928,6 +929,7 @@ const Eigen::Vector3d centroid(const TriMesh& mesh, uint32_t ff)
 double triangleAspectRatio(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1,
                            const Eigen::Vector3d& p2)
 {
+   // Ratio between longest and shortest leg
    const double d01 = (p0-p1).norm();
    const double d12 = (p1-p2).norm();
    const double d20 = (p2-p0).norm();
@@ -936,6 +938,21 @@ double triangleAspectRatio(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1,
    const double mmin = std::min(std::min(d01, d12), d20);
 
    return mmax/mmin;
+}
+
+double triangleAltitude(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1,
+                           const Eigen::Vector3d& p2)
+{
+   const double a = (p0-p1).norm();
+   const double b = (p1-p2).norm();
+   const double c = (p2-p0).norm();
+   const double s = (a+b+c)*0.5;
+
+   const double h_a = 2*sqrt(s*(s-a)*(s-b)*(s-c))/a;
+   const double h_b = 2*sqrt(s*(s-a)*(s-b)*(s-c))/b;
+   const double h_c = 2*sqrt(s*(s-a)*(s-b)*(s-c))/c;
+
+   return std::min(std::min(h_a, h_b), h_c);
 }
 
 
@@ -960,6 +977,32 @@ const Eigen::Vector3d& CSGEngine::ipointPos(const IPointRef& ref) const
       return m_newPointPositions[ref.idx];
 }
 
+bool CSGEngine::degenerateTriangle(const IFace& face) const
+{
+   // Check for duplicate vertex indices (only useful after we've
+   // done point welding or duplicate-finding)
+   if ((face.v[0] == face.v[1]) || (face.v[0] == face.v[2]) || (face.v[1] == face.v[2]))
+      return true;
+
+   // Check for bad aspect ratio
+   const double BAD_VALUE = 1e+10; // TODO
+   const double aspect_ratio = triangleAspectRatio(ipointPos(face.v[0]), ipointPos(face.v[1]),
+                                                   ipointPos(face.v[2]));
+   std::cout << "aspect ratio = " << aspect_ratio << std::endl;
+   if (aspect_ratio > BAD_VALUE)
+      return true;
+
+   // Check for bad altitude (a squashed triangle)
+   const double BAD_ALTITUDE = 1e-6; // TODO
+   const double min_altitude = triangleAltitude(ipointPos(face.v[0]), ipointPos(face.v[1]),
+                                                 ipointPos(face.v[2]));
+   std::cout << "min altitude = " << min_altitude << std::endl;
+
+   if (min_altitude < BAD_ALTITUDE)
+      return true;
+
+   return false;
+}
 
 std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_mesh, uint32_t fidx,
                                             const std::vector<uint32_t>& new_vert_indices) const
@@ -971,7 +1014,7 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
    std::cout << "numPoints=" << numPoints << "  numSegments=" << numSegments << std::endl;
 #endif
 
-   // Rotate the triangle into the XY plane ('triangle' is2D only)
+   // Rotate the triangle into the XY plane ('triangle' is 2D only)
    const Eigen::Vector3d& p0 = mesh.vertices()[mesh.faces()[fidx].m_v[0]];
    const Eigen::Vector3d& p1 = mesh.vertices()[mesh.faces()[fidx].m_v[1]];
    const Eigen::Vector3d& p2 = mesh.vertices()[mesh.faces()[fidx].m_v[2]];
@@ -1033,49 +1076,94 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
    char flags[] = "Qcz";  // pcze
    triangulate(flags, &in, &out, 0);
 
-   // Convert the locally-indices triangle vertex indices into IPointRefs
-   std::vector<IFace> new_faces(out.numberoftriangles);
-   for (uint32_t ii = 0; ii < out.numberoftriangles; ii++)
+   // triangulate is extremely precise and may create vertices which are the
+   // same for any reasonable geometric purpose. Here, we weld all vertices that
+   // are closer than some epsilon. We do this in a brute-force way because
+   // we'll have very few vertices in this function
+   const size_t num_initial_verts = 3 + new_vert_indices.size();
+   std::vector<uint32_t> vertex_mapping(num_initial_verts);
+   for (size_t ii=0; ii<num_initial_verts; ++ii)
    {
-      new_faces[ii].orig = fidx;
-      for (uint32_t jj = 0; jj < 3; jj++)
+      vertex_mapping[ii] = ii;
+   }
+
+   for (size_t ii=0; ii<new_vert_indices.size(); ++ii)
+   {
+      const size_t v_idx = ii+3;
+      // Test against primal points
+      const Eigen::Vector3d pt = ipointPos(m_newPoints[new_vert_indices[ii]].ref);
+      //std::cout << "Looking at #" << v_idx << ": " << pt.transpose() << std::endl;
+
+      if (point_almost_equal(p0, pt))
       {
-         uint32_t idx = out.trianglelist[ii * 3 + jj];
-         if (idx < 3) // original vertices
+         //std::cout << "   same as p0: " << p0 << std::endl;
+         vertex_mapping[v_idx] = 0;
+         continue;
+      }
+      if (point_almost_equal(p1, pt))
+      {
+         //std::cout << "   same as p1: " << p1 << std::endl;
+         vertex_mapping[v_idx] = 1;
+         continue;
+      }
+      if (point_almost_equal(p2, pt))
+      {
+         //std::cout << "   same as p2: " << p2 << std::endl;
+         vertex_mapping[v_idx] = 2;
+         continue;
+      }
+      for (size_t jj=0; jj<new_vert_indices.size(); ++jj)
+      {
+         if (jj >= ii)
+            continue;
+         if (point_almost_equal(ipointPos(m_newPoints[new_vert_indices[jj]].ref), pt))
          {
-            new_faces[ii].v[jj].parent = which_mesh;
-            new_faces[ii].v[jj].idx = mesh.faces()[fidx].m_v[idx];
-         }
-         else
-         {
-            new_faces[ii].v[jj] = m_newPoints[new_vert_indices[idx-3]].ref;
+            //std::cout << "   same as np" << jj << ": "
+            //          << ipointPos(m_newPoints[new_vert_indices[jj]].ref).transpose()
+            //          << std::endl;
+            vertex_mapping[v_idx] = jj+3;
+            continue;
          }
       }
    }
+   //std::cout << "Mapping:"  << std::endl;
+   //for (size_t ii=0; ii<num_initial_verts; ++ii)
+   //{
+   //   std::cout << "  " << ii << " -> " << vertex_mapping[ii] << std::endl;
+   //}
 
-#if DEBUG
-   // dump raw output
-   std::cout << "# raw output from triangulate" << std::endl;
-   std::cout << "v " << p0.transpose() << std::endl;
-   std::cout << "v " << p1.transpose() << std::endl;
-   std::cout << "v " << p2.transpose() << std::endl;
-
-   for (uint32_t ii = 0; ii < new_vert_indices.size(); ++ii)
-       std::cout << "v " << ipointPos(m_newPoints[new_vert_indices[ii]].ref).transpose()
-                 << std::endl;
-
-   std::cout << "# faces" << std::endl;
+   // Convert the local triangle vertex indices into global IPointRefs
+   std::vector<IFace> new_faces;
    for (uint32_t ii = 0; ii < out.numberoftriangles; ii++)
    {
-       std::cout << "f";
-       for (uint32_t jj = 0; jj < 3; jj++)
-       {
-           std::cout << " " << out.trianglelist[ii * 3 + jj]+1;
-       }
-       std::cout << std::endl;
-   }
-   std::cout << std::endl << std::endl;
+      IFace new_face;
+      new_face.orig = fidx;
+      for (uint32_t jj = 0; jj < 3; jj++)
+      {
+         uint32_t idx = vertex_mapping[out.trianglelist[ii * 3 + jj]];
+         if (idx < 3) // original vertices
+         {
+            new_face.v[jj].parent = which_mesh;
+            new_face.v[jj].idx = mesh.faces()[fidx].m_v[idx];
+         }
+         else
+         {
+            new_face.v[jj] = m_newPoints[new_vert_indices[idx-3]].ref;
+         }
+      }
+
+      if (!degenerateTriangle(new_face))
+      {
+         new_faces.push_back(new_face);
+      }
+#if DEBUG
+      else
+      {
+         std::cout << "Skipping face: " << new_face.v[0].idx << "," << new_face.v[1].idx
+                   << "," << new_face.v[2].idx << std::endl;
+      }
 #endif
+   }
 
    free(in.pointlist);
    free(in.segmentlist);
@@ -1099,8 +1187,6 @@ std::vector<char> CSGEngine::classifyCutFaces(const std::vector<IFace>& in_faces
    {
       const IFace& ff = in_faces[fidx];
 
-      std::cout << "classifying face " << fidx << " cut from face " << ff.orig << std::endl;
-
       // Find a face on the opposite surface (the one that cut this one) to
       // compare against for above/belowness
       IPointRef testFace; // repurposing this structure to track a face
@@ -1120,12 +1206,6 @@ std::vector<char> CSGEngine::classifyCutFaces(const std::vector<IFace>& in_faces
             }
          }
       }
-      std::cout << " testing against ";
-      if (testFace.parent == kKnife)
-         std::cout << "knife face ";
-      else
-         std::cout << "clay face ";
-      std::cout << testFace.idx << std::endl;
 
       // TODO: precompute or lazily compute face normals
       Eigen::Vector3d normal;
@@ -1159,40 +1239,28 @@ std::vector<char> CSGEngine::classifyCutFaces(const std::vector<IFace>& in_faces
             {
                vote_above++;
                height_above += nn;
-               std::cout << "  vertex " << ii << " above by " << height_above << std::endl;
             }
             else if (nn < 0)
             {
                vote_below++;
                height_below -= nn;
-               std::cout << "  vertex " << ii << " below by " << height_below << std::endl;
-            }
-            else
-            {
-                std::cout << "  vertex " << ii << " exactly on the face." << std::endl;
             }
          }
       }
 
       // Test triangle center
       face_center /= 3.0;
-      std::cout << " center pos: " << face_center.transpose() << std::endl;
       const double nn = (face_center - center).dot(normal);
       if (nn > 0)
       {
          vote_above++;
          height_above += nn;
-         std::cout << "  center above by " << height_above << std::endl;
       }
       else if (nn < 0)
       {
          vote_below++;
          height_below -= nn;
-         std::cout << "  center below by " << height_below << std::endl;
       }
-
-      std::cout << "**votes:  above=" << vote_above << "  below=" << vote_below
-                << std::endl;
 
       if (vote_above > vote_below)
       {
@@ -1363,7 +1431,6 @@ TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
                                 const std::vector<char>& cut_face_status,
                                 const std::vector<char>& uncut_face_status)
 {
-   std::cout << "assembleMesh" << std::endl;
    const TriMesh& original_mesh = getMesh(which_surface);
    const TriMesh& opposite_mesh = otherMesh(which_surface);
 
@@ -1430,7 +1497,6 @@ TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
    uint32_t count = 0;
    for (uint32_t ii=0; ii<original_mesh.faces().size(); ++ii)
    {
-      std::cout << "uncut_face_status[" << ii << "] = " << int(uncut_face_status[ii]) << std::endl;
       if (uncut_face_status[ii] == side)
       {
          Eigen::Vector3i face;
@@ -1450,7 +1516,6 @@ TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
             }
          }
          faces.push_back(face);
-         std::cout << "  adding uncut original face " << ii << std::endl;
       }
    }
 
@@ -1463,12 +1528,9 @@ TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
          for (uint32_t jj=0; jj<3; ++jj)
          {
             const auto& pt = new_faces[ii].v[jj];
-            //std::cout << "cvi = " << canonicalVertexIndex(pt) << std::endl;
             uint32_t idx = vertex_map[canonicalVertexIndex(pt)];
-            //std::cout << "idx = " << idx << std::endl;
             if (used_map[idx] == UINT32_MAX)
             {
-               //std::cout << "cf new vertex " << idx << " -> " << count << std::endl;
                vertices.push_back(ipointPos(pt));
                face[jj] = count;
                used_map[idx] = count;
@@ -1476,12 +1538,9 @@ TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
             }
             else
             {
-               //std::cout << "cf seen vertex " << idx << " -> " << used_map[idx] << std::endl;
                face[jj] = used_map[idx];
             }
          }
-         //std::cout << "c face: " << face[0] << " " << face[1] << " " << face[2] << std::endl;
-         std::cout << "  adding cut face " << ii << std::endl;
          faces.push_back(face);
       }
    }

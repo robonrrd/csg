@@ -30,6 +30,15 @@ public:
    IPointRef() : parent(kNone), idx(0) {};
    IPointRef(IParent p, uint32_t i) : parent(p), idx(i) {};
 
+   bool operator==(const IPointRef& other) const
+   {
+      return (parent == other.parent) && (idx == other.idx);
+   }
+   bool operator!=(const IPointRef& other) const
+   {
+      return !(*this == other);
+   }
+
    IParent parent;
    uint32_t idx;  // index into parent face's mesh (if applicable)
 };
@@ -106,7 +115,11 @@ class CSGEngine
    std::vector<IPoint> convertIntersectionToIpoints(const TriangleIntersection& ix,
                                                     uint32_t clay_face_idx,
                                                     uint32_t knife_face_idx);
+
    uint32_t canonicalVertexIndex(const IPointRef& ref) const;
+
+   bool degenerateTriangle(const IFace& triangle) const;
+
    std::vector<IFace> retriangulate(const TriMesh& mesh, IParent which_mesh, uint32_t fidx,
                                     const std::vector<uint32_t>& new_vert_indices) const;
 
