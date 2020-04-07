@@ -207,8 +207,8 @@ void AABBTree::addSphere(uint32_t origin, const Eigen::Vector3d& position, doubl
         nodes[node].aabb.lowerBound[ii] -= skinThickness * size[ii];
         nodes[node].aabb.upperBound[ii] += skinThickness * size[ii];
     }
-    nodes[node].aabb.surfaceArea() = nodes[node].aabb.computeSurfaceArea();
-    nodes[node].aabb.center() = nodes[node].aabb.computeCenter();
+    nodes[node].aabb.surfaceArea(nodes[node].aabb.computeSurfaceArea());
+    nodes[node].aabb.center(nodes[node].aabb.computeCenter());
 
     // Zero the height.
     nodes[node].height = 0;
@@ -264,8 +264,8 @@ void AABBTree::insertAABB(uint32_t index, const Eigen::Vector3d& lowerBound,
         nodes[node].aabb.lowerBound[ii] -= skinThickness * size[ii];
         nodes[node].aabb.upperBound[ii] += skinThickness * size[ii];
     }
-    nodes[node].aabb.surfaceArea() = nodes[node].aabb.computeSurfaceArea();
-    nodes[node].aabb.center() = nodes[node].aabb.computeCenter();
+    nodes[node].aabb.surfaceArea(nodes[node].aabb.computeSurfaceArea());
+    nodes[node].aabb.center(nodes[node].aabb.computeCenter());
 
     // Zero the height.
     nodes[node].height = 0;
@@ -405,8 +405,8 @@ bool AABBTree::updateAABB(uint32_t index, const Eigen::Vector3d& lowerBound,
     nodes[node].aabb = aabb;
 
     // Update the surface area and centroid.
-    nodes[node].aabb.surfaceArea() = nodes[node].aabb.computeSurfaceArea();
-    nodes[node].aabb.center() = nodes[node].aabb.computeCenter();
+    nodes[node].aabb.surfaceArea(nodes[node].aabb.computeSurfaceArea());
+    nodes[node].aabb.center(nodes[node].aabb.computeCenter());
 
     // Insert a new leaf node.
     insertLeaf(node);
