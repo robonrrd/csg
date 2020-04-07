@@ -94,7 +94,7 @@ TriMesh::TriMesh(
     const std::vector<Eigen::Vector3i, Eigen::aligned_allocator<Eigen::Vector3i>>& in_faces)
     : m_vertices(in_vertices)
 {
-    const uint32_t numFaces = in_faces.size()/3;
+    const uint32_t numFaces = in_faces.size();
     m_faces.resize(numFaces);
     for (uint32_t ii=0; ii<numFaces; ++ii)
     {

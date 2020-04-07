@@ -17,6 +17,7 @@ enum CSGOperation
 
 enum IParent
 {
+   kNone,
    kClay,
    kKnife,
    kBoth,
@@ -26,6 +27,9 @@ enum IParent
 class IPointRef
 {
 public:
+   IPointRef() : parent(kNone), idx(0) {};
+   IPointRef(IParent p, uint32_t i) : parent(p), idx(i) {};
+
    IParent parent;
    uint32_t idx;  // index into parent face's mesh (if applicable)
 };
@@ -117,6 +121,10 @@ class CSGEngine
                         const std::vector<IFace>& new_faces,
                         const std::vector<char>& cut_face_status,
                         const std::vector<char>& uncut_face_status);
+
+   // Get a reference to the mesh specified by IParent
+   const TriMesh& getMesh(IParent which_mesh) { return (which_mesh == kClay) ? m_clay : m_knife; }
+   const TriMesh& otherMesh(IParent which_mesh) { return (which_mesh == kClay) ? m_knife : m_clay; }
 
    // Data members
    const TriMesh& m_clay;
