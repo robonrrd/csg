@@ -1,1 +1,2 @@
-libCSG plugin for Blender v 2.76
+libCSG plugin for Blender v 2.79
+
