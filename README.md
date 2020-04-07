@@ -24,6 +24,8 @@ cd build
 cmake ..
 make
 ```
+## To Use in Blender ##
+After making the project, as described above, run ```make install``` to install the DSOs into your local Python 3.6 site packages. Then, in Blender, go to 'User Preferences' and select 'Install Addon From File.'  Install the ```csg.py``` file, found in the ```blinder``` directory and enable it (by clicking the empty square next to the name).
 
 ## Explanation of the Algorithm ##
 Essentially, the CSG algorithm finds all intersections of the triangles in mesh "A" and
