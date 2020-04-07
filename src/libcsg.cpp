@@ -26,8 +26,8 @@ namespace CSG
 // We seek to minimize the number of special constants as they create edge cases
 // and problems. All magic numbers are expressed in terms of 'units in the last
 // place'
-constexpr uint32_t ALPHA_ULP = 2;
-constexpr uint32_t POINT_ULP = 2;
+constexpr uint32_t POINT_ULP = 2; // the threshhold for point equality
+
 
 //
 // Helper functions
@@ -364,13 +364,8 @@ bool triTri3d(const Eigen::Vector3d& p1, const Eigen::Vector3d& q1, const Eigen:
 }
 
 
-/*
-*
-*  Three-dimensional Triangle-Triangle Overlap Test
-*
-*/
-
-
+// Three-dimensional triangle/triangle overlap test
+//
 bool triTriOverlapTest3d(const Eigen::Vector3d& p1, const Eigen::Vector3d& q1,
                          const Eigen::Vector3d& r1, const Eigen::Vector3d& p2,
                          const Eigen::Vector3d& q2, const Eigen::Vector3d& r2)
@@ -782,7 +777,6 @@ std::vector<IPoint> CSGEngine::convertIntersectionToIpoints(const TriangleInters
       {
          if (point_almost_equal(ix.p[jj], m_clay.vertices()[ct.m_v[ii]]))
          {
-            //std::cout << "ix " << jj << " is same as clay " << ct.m_v[ii] << std::endl;
             clay_v_idx = ii;
             break;
          }
@@ -794,7 +788,6 @@ std::vector<IPoint> CSGEngine::convertIntersectionToIpoints(const TriangleInters
       {
          if (point_almost_equal(ix.p[jj], m_knife.vertices()[kt.m_v[ii]]))
          {
-            //std::cout << "ix " << jj << " is same as knife " << kt.m_v[ii] << std::endl;
             knife_v_idx = ii;
             break;
          }
@@ -827,18 +820,6 @@ std::vector<IPoint> CSGEngine::convertIntersectionToIpoints(const TriangleInters
          pts[jj].ref.idx = m_newPointPositions.size()-1;
       }
    }
-
-#ifdef DEBUG
-   std::cout << "alpha=" << ix.alpha << "  beta=" << ix.beta << std::endl;
-   if (almost_equal(ix.alpha, 1.0, ALPHA_ULP))
-   {
-      std::cout << "alpha is almost 1.0" << std::endl;
-   }
-   else if (almost_equal(ix.alpha, 0.0, ALPHA_ULP))
-   {
-      std::cout << "alpha is almost 0.0" << std::endl;
-   }
-#endif
 
    return pts;
 }
@@ -988,7 +969,6 @@ bool CSGEngine::degenerateTriangle(const IFace& face) const
    const double BAD_VALUE = 1e+10; // TODO
    const double aspect_ratio = triangleAspectRatio(ipointPos(face.v[0]), ipointPos(face.v[1]),
                                                    ipointPos(face.v[2]));
-   std::cout << "aspect ratio = " << aspect_ratio << std::endl;
    if (aspect_ratio > BAD_VALUE)
       return true;
 
@@ -996,7 +976,6 @@ bool CSGEngine::degenerateTriangle(const IFace& face) const
    const double BAD_ALTITUDE = 1e-6; // TODO
    const double min_altitude = triangleAltitude(ipointPos(face.v[0]), ipointPos(face.v[1]),
                                                  ipointPos(face.v[2]));
-   std::cout << "min altitude = " << min_altitude << std::endl;
 
    if (min_altitude < BAD_ALTITUDE)
       return true;
@@ -1092,23 +1071,18 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
       const size_t v_idx = ii+3;
       // Test against primal points
       const Eigen::Vector3d pt = ipointPos(m_newPoints[new_vert_indices[ii]].ref);
-      //std::cout << "Looking at #" << v_idx << ": " << pt.transpose() << std::endl;
-
       if (point_almost_equal(p0, pt))
       {
-         //std::cout << "   same as p0: " << p0 << std::endl;
          vertex_mapping[v_idx] = 0;
          continue;
       }
       if (point_almost_equal(p1, pt))
       {
-         //std::cout << "   same as p1: " << p1 << std::endl;
          vertex_mapping[v_idx] = 1;
          continue;
       }
       if (point_almost_equal(p2, pt))
       {
-         //std::cout << "   same as p2: " << p2 << std::endl;
          vertex_mapping[v_idx] = 2;
          continue;
       }
@@ -1118,19 +1092,19 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
             continue;
          if (point_almost_equal(ipointPos(m_newPoints[new_vert_indices[jj]].ref), pt))
          {
-            //std::cout << "   same as np" << jj << ": "
-            //          << ipointPos(m_newPoints[new_vert_indices[jj]].ref).transpose()
-            //          << std::endl;
             vertex_mapping[v_idx] = jj+3;
             continue;
          }
       }
    }
-   //std::cout << "Mapping:"  << std::endl;
-   //for (size_t ii=0; ii<num_initial_verts; ++ii)
-   //{
-   //   std::cout << "  " << ii << " -> " << vertex_mapping[ii] << std::endl;
-   //}
+
+#ifdef DEBUG
+   std::cout << "Vertex mapping:"  << std::endl;
+   for (size_t ii=0; ii<num_initial_verts; ++ii)
+   {
+      std::cout << "  " << ii << " -> " << vertex_mapping[ii] << std::endl;
+   }
+#endif
 
    // Convert the local triangle vertex indices into global IPointRefs
    std::vector<IFace> new_faces;
@@ -1416,6 +1390,7 @@ void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& n
       }
    }
 
+#ifdef DEBUG
    std::cout << "classification results, uncut (original) faces: " << std::endl;
    for (int ii=0; ii<uncut_face_status.size(); ++ii)
    {
@@ -1423,6 +1398,7 @@ void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& n
          continue;
       std::cout << " " << ii << " : " << int(uncut_face_status[ii]) << std::endl;
    }
+#endif
 }
 
 
