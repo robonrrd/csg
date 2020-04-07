@@ -25,7 +25,7 @@ cmake ..
 make
 ```
 ## To Use in Blender ##
-After making the project, as described above, run ```make install``` to install the DSOs into your local Python 3.6 site packages. Then, in Blender, go to 'User Preferences' and select 'Install Addon From File.'  Install the ```csg.py``` file, found in the ```blinder``` directory and enable it (by clicking the empty square next to the name).
+After making the project, as described above, run ```make install``` to install the DSOs into your local Python 3.6 site packages. Then, in Blender, go to 'User Preferences' and select 'Install Addon From File.'  Install the ```csg.py``` file, found in the ```blender``` directory and enable it (by clicking the empty square next to the name).  To use the CSG tool, select two triangulated meshes: the clay first, then the knife. Execue the CSG operation (space bar, then type 'CSG') and two triangulated meshes will be created: one for the portion of the clay mesh above the knife, one for the portion of the clay mesh below the knife.  
 
 ## Explanation of the Algorithm ##
 Essentially, the CSG algorithm finds all intersections of the triangles in mesh "A" and
