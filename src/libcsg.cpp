@@ -4,7 +4,6 @@
 //
 #include <assert.h>
 #include <iomanip>      // std::setprecision
-#include <queue>
 #include <set>
 #include <stack>
 #include <unordered_map>
@@ -1389,18 +1388,17 @@ void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& n
                      continue;
                   }
                   faces_to_classify.push(*itr2);
-                  std::cout << " adding face " << *itr2 << " to queue" << std::endl;
+                  std::cout << " adding face " << *itr2 << " to stack" << std::endl;
                }
             }
          }
          std::cout << std::endl;
 
-         // go through the queue until we're finished
+         // go through the stack until we're finished
          while (!faces_to_classify.empty())
          {
             const uint32_t f_idx = faces_to_classify.top();
             faces_to_classify.pop();
-
 
             std::cout << "Examining face " << f_idx << std::endl;
             if (f_idx < numNewFaces)  // cut faces
@@ -1413,7 +1411,7 @@ void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& n
                else
                {
                   cut_face_status[f_idx] = cur_status;
-                  std::cout << "..newly classified" << std::endl;
+                  std::cout << "..newly classified cut face" << std::endl;
                }
             }
             else // original (uncut) faces
@@ -1427,9 +1425,9 @@ void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& n
 
                uncut_face_status[original_index] = cur_status;
                uncut_face_classified[original_index] = true;
-               std::cout << "..newly classified" << std::endl;
+               std::cout << "..newly classified uncut face" << std::endl;
 
-               // add this face's unclassified neigbors to the queue
+               // add this face's unclassified neigbors to the stack
                const auto& face = original_mesh.faces()[original_index];
                for (size_t vv=0; vv<3; ++vv)
                {
