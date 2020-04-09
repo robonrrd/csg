@@ -1282,14 +1282,20 @@ void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& n
    //  1. create adjacency map between uncut faces and cut faces, using
    //     shared 'original' (not new ones created by cutting) vertices
    //  2. Select a classified cut face and begin filling
-   //  3. All unlabeled faces now below to the other set
+   //  3. All unlabeled faces belong to the other set
 
-   // Map from vertices index to face indices
+   // Map from a canonical vertex index to a canonical face index
    std::unordered_map<uint32_t, std::vector<uint32_t>> adjacency_map;
 
    // First, add all the cut faces (these have been classified)
    for (size_t ff=0; ff<numNewFaces; ++ff)
    {
+      if (cut_face_status[ff] == 0)
+      {
+         std::cout << "Skipping unclassified cut face " << ff << "!" << std::endl;
+         continue;
+      }
+
       const auto& face = new_faces[ff];
       for (size_t ii=0; ii<3; ++ii)
       {
@@ -1318,10 +1324,9 @@ void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& n
 
       const auto& face = original_mesh.faces()[ff];
       uint32_t f_idx = ff + numNewFaces; // offset indexing
-      for (size_t ii=0; ii<3; ++ii)
+      for (size_t vv=0; vv<3; ++vv)
       {
-         IPointRef rpt(which_surface, face.m_v[ii]);
-         uint32_t idx = canonicalVertexIndex(rpt);
+         const uint32_t idx = canonicalVertexIndex(IPointRef(which_surface, face.m_v[vv]));
          auto itr = adjacency_map.find(idx);
          if (itr == adjacency_map.end())
          {
@@ -1334,19 +1339,40 @@ void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& n
       }
    }
 
-   std::queue<uint32_t> faces_to_classify;
+//#if DEBUG
+   {
+      // Print out adjacency map
+      std::cout << "Adjacency map for " << ( (which_surface == kClay) ? "clay" : "knife" )
+                << std::endl;
+      std::cout << " (canonical vertex index -> canonical face index)" << std::endl;
+      std::cout << " original face offset = " << numNewFaces << std::endl;
+      for (auto itr=adjacency_map.cbegin(); itr!=adjacency_map.cend(); ++itr)
+      {
+         std::cout << itr->first << " -> ";
+         for (size_t ii=0; ii<itr->second.size(); ++ii)
+         {
+            std::cout << itr->second[ii] << " ";
+         }
+         std::cout << std::endl;
+      }
+      std::cout << std::endl;
+   }
+//#endif
+
+   std::stack<uint32_t> faces_to_classify;
    std::vector<bool> uncut_face_classified(original_mesh.faces().size(), false);
    uncut_face_status.clear();
    uncut_face_status.resize(original_mesh.faces().size(), 0);
    for (size_t ff=0; ff<numNewFaces; ++ff)
    {
       // Find a successfully classified face
-      char cur_status = cut_face_status[ff];
+      const char cur_status = cut_face_status[ff];
       if (cur_status != 0)
       {
-         for (size_t ii=0; ii<3; ++ii)
+         std::cout << "Seeding with cut face " << ff << std::endl;
+         for (size_t vv=0; vv<3; ++vv)
          {
-            uint32_t idx = canonicalVertexIndex(new_faces[ff].v[ii]);
+            uint32_t idx = canonicalVertexIndex(new_faces[ff].v[vv]);
             auto itr = adjacency_map.find(idx);
             if (itr != adjacency_map.end())
             {
@@ -1363,29 +1389,73 @@ void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& n
                      continue;
                   }
                   faces_to_classify.push(*itr2);
+                  std::cout << " adding face " << *itr2 << " to queue" << std::endl;
                }
             }
          }
+         std::cout << std::endl;
 
          // go through the queue until we're finished
          while (!faces_to_classify.empty())
          {
-            uint32_t f_idx = faces_to_classify.front();
+            const uint32_t f_idx = faces_to_classify.top();
             faces_to_classify.pop();
 
-            if (f_idx < numNewFaces)
-            {
-               // don't examine cut (i.e. classified) faces
-               continue;
-            }
-            if (uncut_face_classified[f_idx-numNewFaces])
-            {
-               // don't add already-classified uncut faces
-               continue;
-            }
 
-            uncut_face_status[f_idx-numNewFaces] = cur_status;
-            uncut_face_classified[f_idx-numNewFaces] = true;
+            std::cout << "Examining face " << f_idx << std::endl;
+            if (f_idx < numNewFaces)  // cut faces
+            {
+               if (cut_face_status[f_idx] != 0)
+               {
+                  // don't examine classified cut faces
+                  continue;
+               }
+               else
+               {
+                  cut_face_status[f_idx] = cur_status;
+                  std::cout << "..newly classified" << std::endl;
+               }
+            }
+            else // original (uncut) faces
+            {
+               const size_t original_index = f_idx - numNewFaces;
+               if (uncut_face_classified[original_index])
+               {
+                  // don't add already-classified uncut faces
+                  continue;
+               }
+
+               uncut_face_status[original_index] = cur_status;
+               uncut_face_classified[original_index] = true;
+               std::cout << "..newly classified" << std::endl;
+
+               // add this face's unclassified neigbors to the queue
+               const auto& face = original_mesh.faces()[original_index];
+               for (size_t vv=0; vv<3; ++vv)
+               {
+                  IPointRef rpt(which_surface, face.m_v[vv]);
+                  const uint32_t idx = canonicalVertexIndex(rpt);
+                  std::cout << "Looking for vertex " << idx << " in adj map" << std::endl;
+                  auto itr = adjacency_map.find(idx);
+                  if (itr == adjacency_map.end())
+                     continue;
+
+                  for (size_t kk=0; kk<itr->second.size(); ++kk)
+                  {
+                     const uint32_t cf = itr->second[kk];
+                     std::cout << "..examining face " << cf << " from adj map" << std::endl;
+                     if (cf < numNewFaces)
+                     {
+                        continue; // skip cut faces
+                     }
+                     if (!uncut_face_classified[cf - numNewFaces])
+                     {
+                        std::cout << "...adding attached face " << cf << std::endl;
+                        faces_to_classify.push(cf);
+                     }
+                  }
+               }
+            }
          }
       }
    }
