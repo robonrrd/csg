@@ -3,6 +3,11 @@
 This is a clean re-implementation of work I did years ago at a visual effects company.  This library implements the three core CSG operations (intersection, union, and difference) on triangulated meshes.  Unlike typical CSG implementations, the meshes to
 be operated on do not need to be solid (*i.e.* watertight) or even manifold.
 
+## Current Status ##
+### April 10, 2020 ###
+ All major pieces of functionality are working in my limited tests.  Only 'difference' operations are currently supported, with no watertight "capping."  Capping (and intersection and union operations) are variations of the existing code, but I want to do more debugging and optimizations. No support for preserving normals or UVs.  Poor handling of edge and corner cases.
+
+
 ## Dependencies ##
 Requires [Eigen](http://eigen.tuxfamily.org/index.php?title=Main_Page#Download). 
 
