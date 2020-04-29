@@ -162,29 +162,6 @@ bool intersectionTestEdge(const Eigen::Vector2d& P1, const Eigen::Vector2d& Q1,
 }
 
 
-bool checkMinMax(const Eigen::Vector3d& p1, const Eigen::Vector3d& q1, const Eigen::Vector3d& r1,
-                 const Eigen::Vector3d& p2, const Eigen::Vector3d& q2, const Eigen::Vector3d& r2,
-                 Eigen::Vector3d& n1)
-{
-   Eigen::Vector3d v1 = p2 - q1;
-   Eigen::Vector3d v2 = p1 - q1;
-   n1 = v1.cross(v2);
-
-   v1 = q2 - q1;
-   if (v1.dot(n1) > 0.0)
-      return false;
-
-   v1 = p2 - p1;
-   v2 = r1 - p1;
-   n1 = v1.cross(v2);
-   v1 = r2 - p1;
-   if (v1.dot(n1) > 0.0)
-      return false;
-
-   return true;
-}
-
-
 bool ccwTriTriIntersection2d(const Eigen::Vector2d& p1, const Eigen::Vector2d& q1,
                              const Eigen::Vector2d& r1, const Eigen::Vector2d& p2,
                              const Eigen::Vector2d& q2, const Eigen::Vector2d& r2)
@@ -308,149 +285,6 @@ bool coplanarTriTri3d(const Eigen::Vector3d& p1, const Eigen::Vector3d& q1,
 
    return triTriOverlapTest2d(P1, Q1, R1, P2, Q2, R2);
 };
-
-
-// Permutation in a canonical form of T2's vertices
-bool triTri3d(const Eigen::Vector3d& p1, const Eigen::Vector3d& q1, const Eigen::Vector3d& r1,
-              const Eigen::Vector3d& p2, const Eigen::Vector3d& q2, const Eigen::Vector3d& r2,
-              Eigen::Vector3d& n1, Eigen::Vector3d& n2,
-              const double dp2, const double dq2, const double dr2)
-{
-   if (dp2 > 0.0)
-   {
-      if (dq2 > 0.0)
-         return checkMinMax(p1, r1, q1, r2, p2, q2, n1);
-      else if (dr2 > 0.0)
-         return checkMinMax(p1, r1, q1, q2, r2, p2, n1);
-      else
-         return checkMinMax(p1, q1, r1, p2, q2, r2, n1);
-   }
-   else if (dp2 < 0.0)
-   {
-      if (dq2 < 0.0)
-         return checkMinMax(p1, q1, r1, r2, p2, q2, n1);
-      else if (dr2 < 0.0)
-         return checkMinMax(p1, q1, r1, q2, r2, p2, n1);
-      else
-         return checkMinMax(p1, r1, q1, p2, q2, r2, n1);
-   }
-   else
-   {
-      if (dq2 < 0.0)
-      {
-         if (dr2 >= 0.0)
-            return checkMinMax(p1, r1, q1, q2, r2, p2, n1);
-         else
-            return checkMinMax(p1, q1, r1, p2, q2, r2, n1);
-      }
-      else if (dq2 > 0.0)
-      {
-         if (dr2 > 0.0)
-            return checkMinMax(p1, r1, q1, p2, q2, r2, n1);
-         else
-            return checkMinMax(p1, q1, r1, q2, r2, p2, n1);
-      }
-      else
-      {
-         if (dr2 > 0.0)
-            return checkMinMax(p1, q1, r1, r2, p2, q2, n1);
-         else if (dr2 < 0.0)
-            return checkMinMax(p1, r1, q1, r2, p2, q2, n1);
-         else
-            return coplanarTriTri3d(p1, q1, r1, p2, q2, r2, n1, n2);
-      }
-   }
-}
-
-
-// Three-dimensional triangle/triangle overlap test
-//
-bool triTriOverlapTest3d(const Eigen::Vector3d& p1, const Eigen::Vector3d& q1,
-                         const Eigen::Vector3d& r1, const Eigen::Vector3d& p2,
-                         const Eigen::Vector3d& q2, const Eigen::Vector3d& r2)
-{
-   double dp1, dq1, dr1, dp2, dq2, dr2;
-   Eigen::Vector3d v1, v2;
-   Eigen::Vector3d n1, n2;
-
-   /* Compute distance signs  of p1, q1 and r1 to the plane of
-      triangle(p2,q2,r2) */
-   v1 = p2 - r2;
-   v2 = q2 - r2;
-   n2 = v1.cross(v2);
-
-   v1 = p1 - r2;
-   dp1 = v1.dot(n2);
-   v1 = q1 - r2;
-   dq1 = v1.dot(n2);
-   v1 = r1 - r2;
-   dr1 = v1.dot(n2);
-
-   if (((dp1 * dq1) > 0.0) && ((dp1 * dr1) > 0.0))
-      return false;
-
-   /* Compute distance signs  of p2, q2 and r2 to the plane of
-     triangle(p1,q1,r1) */
-   v1 = q1 - p1;
-   v2 = r1 - p1;
-   n1 = v1.cross(v2);
-
-   v1 = p2 - r1;
-   dp2 = v1.dot(n1);
-   v1 = q2 - r1;
-   dq2 = v1.dot(n1);
-   v1 = r2 - r1;
-   dr2 = v1.dot(n1);
-
-   if (((dp2 * dq2) > 0.0) && ((dp2 * dr2) > 0.0))
-      return false;
-
-   /* Permutation in a canonical form of T1's vertices */
-   if (dp1 > 0.0)
-   {
-      if (dq1 > 0.0)
-         return triTri3d(r1, p1, q1, p2, r2, q2, n1, n2, dp2, dr2, dq2);
-      else if (dr1 > 0.0)
-         return triTri3d(q1, r1, p1, p2, r2, q2, n1, n2, dp2, dr2, dq2);
-      else
-         return triTri3d(p1, q1, r1, p2, q2, r2, n1, n2, dp2, dq2, dr2);
-   }
-   else if (dp1 < 0.0)
-   {
-      if (dq1 < 0.0)
-         return triTri3d(r1, p1, q1, p2, q2, r2, n1, n2, dp2, dq2, dr2);
-      else if (dr1 < 0.0)
-         return triTri3d(q1, r1, p1, p2, q2, r2, n1, n2, dp2, dq2, dr2);
-      else
-         return triTri3d(p1, q1, r1, p2, r2, q2, n1, n2, dp2, dr2, dq2);
-   }
-   else
-   {
-      if (dq1 < 0.0)
-      {
-         if (dr1 >= 0.0)
-            return triTri3d(q1, r1, p1, p2, r2, q2, n1, n2, dp2, dr2, dq2);
-         else
-            return triTri3d(p1, q1, r1, p2, q2, r2, n1, n2, dp2, dq2, dr2);
-      }
-      else if (dq1 > 0.0)
-      {
-         if (dr1 > 0.0)
-            return triTri3d(p1, q1, r1, p2, r2, q2, n1, n2, dp2, dr2, dq2);
-         else
-            return triTri3d(q1, r1, p1, p2, q2, r2, n1, n2, dp2, dq2, dr2);
-      }
-      else
-      {
-         if (dr1 > 0.0)
-            return triTri3d(r1, p1, q1, p2, q2, r2, n1, n2, dp2, dq2, dr2);
-         else if (dr1 < 0.0)
-            return triTri3d(r1, p1, q1, p2, r2, q2, n1, n2, dp2, dr2, dq2);
-         else
-            return coplanarTriTri3d(p1, q1, r1, p2, q2, r2, n1, n2);
-      }
-   }
-}
 
 
 // This function is called when the triangles are known to intersect. It
@@ -1600,7 +1434,6 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
 {
    // Create and intersect AABB trees
    std::unordered_set<std::pair<uint32_t, uint32_t>> ix = intersectAABBs(m_clay, m_knife);
-   const uint32_t ix_sz = ix.size();
 
    // Calculate actual triangle intersections, with intersection data
 
