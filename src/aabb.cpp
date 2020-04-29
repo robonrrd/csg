@@ -327,7 +327,7 @@ void AABBTree::removeAll()
         removeLeaf(node);
         freeNode(node);
 
-        it++;
+        ++it;
     }
 
     // Clear the map.
