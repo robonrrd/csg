@@ -1429,6 +1429,118 @@ TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
 }
 
 
+TriMesh CSGEngine::mergeMeshes(const TriMesh& exterior, const TriMesh& cap)
+{
+   //
+   // Weld vertices using an AABB tree
+   //
+   const size_t num_ext_vertices = exterior.vertices().size();
+   const size_t num_cap_vertices = cap.vertices().size();
+   const size_t num_total_vertices = num_ext_vertices + num_cap_vertices;
+   const double radius = 1e-06; // TODO: express in ULP
+
+   AABBTree tree(0.05, num_total_vertices);
+
+   // Add exterior mesh vertices
+   for (size_t ii=0; ii<num_ext_vertices; ++ii)
+   {
+      tree.addSphere(ii, exterior.vertices()[ii], radius);
+   }
+
+   // Add cap mesh vertices
+   for (uint32_t ii=0; ii<num_cap_vertices; ++ii)
+   {
+      const uint32_t idx = ii+num_ext_vertices;
+      tree.addSphere(idx, cap.vertices()[ii], radius);
+   }
+
+   // Query the tree with every vertex to detect duplicates
+   // 'vertex_map' maps from the unwelded vertex numbering to the welded
+   // numbering
+   std::vector<uint32_t> vertex_map(num_total_vertices, UINT32_MAX);
+   for (size_t ii=0; ii<num_ext_vertices; ++ii)
+   {
+      auto dupes = tree.query(ii);
+      if (dupes.size() == 0)
+      {
+         vertex_map[ii] = ii;
+      }
+      else
+      {
+         std::sort(dupes.begin(), dupes.end(), std::less<uint32_t>());
+         vertex_map[ii] = dupes[0]; // use the first (smallest)
+      }
+   }
+   for (size_t ii=0; ii<num_cap_vertices; ++ii)
+   {
+      const uint32_t idx = ii+num_ext_vertices;
+      auto dupes = tree.query(idx);
+      if (dupes.size() == 0)
+      {
+         vertex_map[idx] = idx;
+      }
+      else
+      {
+         std::sort(dupes.begin(), dupes.end(), std::less<uint32_t>());
+         vertex_map[idx] = dupes[0]; // use the first (smallest)
+      }
+   }
+
+   // Construct the merged mesh
+   TriMesh output;
+   std::vector<VECTOR3D>& vertices = output.vertices();
+   std::vector<VECTOR3I> faces;
+   std::vector<uint32_t> used_map(num_total_vertices, UINT32_MAX);
+
+   uint32_t count = 0;
+   const size_t num_exterior_faces = exterior.faces().size();
+   for (uint32_t ii=0; ii<num_exterior_faces; ++ii)
+   {
+      Eigen::Vector3i face;
+      for (uint32_t jj=0; jj<3; ++jj)
+      {
+         const uint32_t idx = exterior.faces()[ii].m_v[jj];
+         if (used_map[idx] == UINT32_MAX)
+         {
+            vertices.push_back( exterior.vertices()[idx] );
+            face[jj] = count;
+            used_map[idx] = count;
+            count++;
+         }
+         else
+         {
+            face[jj] = used_map[idx];
+         }
+      }
+      faces.push_back(face);
+   }
+   const size_t num_cap_faces = cap.faces().size();
+   for (uint32_t ii=0; ii<num_cap_faces; ++ii)
+   {
+      Eigen::Vector3i face;
+      for (uint32_t jj=0; jj<3; ++jj)
+      {
+         const uint32_t cfvi = cap.faces()[ii].m_v[jj];
+         const uint32_t idx = cfvi + num_ext_vertices;
+         if (used_map[idx] == UINT32_MAX)
+         {
+            vertices.push_back( cap.vertices()[cfvi] );
+            face[jj] = count;
+            used_map[idx] = count;
+            count++;
+         }
+         else
+         {
+            face[jj] = used_map[idx];
+         }
+      }
+      faces.push_back(face);
+   }
+   output.setFaces(faces);
+
+   return output;
+}
+
 
 void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriMesh& out_B)
 {
@@ -1537,8 +1649,27 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
                     knife_uncut_face_status);
    }
 
-   out_A = assembleMesh(kClay, 1, new_clay_faces, clay_cut_face_status, clay_uncut_face_status);
-   out_B = assembleMesh(kClay, -1, new_clay_faces, clay_cut_face_status, clay_uncut_face_status);
+   constexpr char ABOVE = 1;
+   constexpr char BELOW = -1;
+   TriMesh clay_above = assembleMesh(kClay, ABOVE, new_clay_faces, clay_cut_face_status,
+                                     clay_uncut_face_status);
+   TriMesh clay_below = assembleMesh(kClay, BELOW, new_clay_faces, clay_cut_face_status,
+                                     clay_uncut_face_status);
+
+   if (cap)
+   {
+       // We only care about the knife faces _below_ the clay mesh, because those
+       // are the faces _inside_ the clay.
+       TriMesh knife_below = assembleMesh(kKnife, BELOW, new_knife_faces, knife_cut_face_status,
+                                          knife_uncut_face_status);
+       out_A = mergeMeshes(clay_above, knife_below);
+       out_B = mergeMeshes(clay_below, knife_below);
+   }
+   else
+   {
+       out_A = clay_above;
+       out_B = clay_below;
+   }
 }
 
 }  // namespace CSG
