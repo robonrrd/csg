@@ -1,7 +1,9 @@
 #include <Eigen/Core>
 #include <Eigen/StdVector>
-#include <string>
+
 #include <iostream>
+#include <string>
+
 #include "aabb.h"
 
 #pragma once
@@ -26,9 +28,9 @@ public:
    friend std::ostream& operator<<(std::ostream& os, const Triangle& tri);
 #endif
 
-   int32_t m_v[3];   //> vertices
-   int32_t m_n[3];   //> normals
-   int32_t m_uv[3];  //> UVs
+   int32_t m_v[3];   // vertices
+   int32_t m_n[3];   // normals
+   int32_t m_uv[3];  // UVs
 };
 
 
@@ -84,9 +86,9 @@ class TriMesh
    std::vector<VECTOR3D> m_vertices;
    std::vector<VECTOR3D> m_normals;
    std::vector<VECTOR2D> m_uvs;
-   // Faces index into the vectors above
+
+   // Faces containing indices into the vectors above
    std::vector<Triangle> m_faces;
 };
-
 
 }  //namespace CSG
