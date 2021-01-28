@@ -15,8 +15,7 @@
 /// Null node flag.
 constexpr uint32_t NULL_NODE = std::numeric_limits<uint32_t>::max();
 
-// custom specialization of std::hash for pairs of ints, be injected in std
-// namespace
+//> Specialization of std::hash for pairs of ints, injected into std namespace
 namespace std
 {
     template<> struct hash< std::pair<uint32_t, uint32_t> >
@@ -25,12 +24,12 @@ namespace std
         {
             std::size_t h1 = std::hash<uint32_t>{}(s.first);
             std::size_t h2 = std::hash<uint32_t>{}(s.second);
-            return h1 ^ (h2 << 1); // or use boost::hash_combine (see Discussion)
+            return h1 ^ (h2 << 1); // instead of 'boost::hash_combine'
         }
     };
 }
 
-// Axis-aligned bounding box
+//> Axis-aligned bounding box
 class AABB
 {
   public:
@@ -68,20 +67,19 @@ class AABB
    // The position of the AABB center.
    Eigen::Vector3d m_center;
 
-   /// The AABB's surface area.
+   // The AABB's surface area.
    double m_surfaceArea;
 };
 
 
-// AABB Tree Node
-//
-// The AABB objects are "fattened" before they are stored to avoid having to
-// continually update and rebalance the tree when displacements are small.
-//
-// Nodes are aware of their position within in the tree. The isLeaf member
-// function allows the tree to query whether the node is a leaf, i.e. to
-// determine whether it holds a single object.
-//
+//> AABB Tree Node
+//>
+//> The AABB objects are "fattened" before they are stored to avoid having to
+//> continually update and rebalance the tree when displacements are small.
+//>
+//> Nodes are aware of their position within in the tree. The isLeaf member
+//> function allows the tree to query whether the node is a leaf, i.e. to
+//> determine whether it holds a single object.
 class AABBNode
 {
   public:
@@ -115,12 +113,11 @@ class AABBNode
 };
 
 
-// Dynamic AABB tree.
-//
-// The dynamic AABB tree is a hierarchical data structure that can be used to
-// efficiently query overlaps between objects of arbitrary shape and size that
-// lie inside of a bounding box.
-//
+//> Dynamic AABB tree.
+//>
+//> The dynamic AABB tree is a hierarchical data structure that can be used to
+//> efficiently query overlaps between objects of arbitrary shape and size that
+//> lie inside of a bounding box.
 class AABBTree
 {
   public:
@@ -142,10 +139,10 @@ class AABBTree
    // Return the number of objects stored in the tree.
    const uint32_t numObjects() const;
 
-   //! Remove an object from the tree.
+   // Remove an object from the tree.
    void removeObject(uint32_t index);
 
-   /// Remove all objects from the tree.
+   // Remove all objects from the tree.
    void removeAll();
 
    // Update the tree if an object moves
