@@ -567,6 +567,7 @@ bool triTriIntersectionTest3d(const Eigen::Vector3d& p1, const Eigen::Vector3d& 
 }
 
 
+// Convenience wrapper around triTriIntersectionTest3d
 TriangleIntersection intersect(
     const Triangle& tri_a, const std::vector<VECTOR3D>& verts_a,
     const Triangle& tri_b, const std::vector<VECTOR3D>& verts_b)
@@ -755,7 +756,7 @@ double triangleAspectRatio(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1,
 }
 
 double triangleAltitude(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1,
-                           const Eigen::Vector3d& p2)
+                        const Eigen::Vector3d& p2)
 {
    const double a = (p0-p1).norm();
    const double b = (p1-p2).norm();
@@ -878,8 +879,8 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
    in.segmentlist = (int*)malloc(numSegments * 2 * sizeof(int));
    for (uint32_t ii = 0; ii < numSegments; ++ii)
    {
-      in.segmentlist[2 * ii] = 3 + ii;
-      in.segmentlist[2 * ii + 1] = 4 + ii;
+      in.segmentlist[2 * ii] = 3 + 2 * ii;
+      in.segmentlist[2 * ii + 1] = 4 + 2 * ii;
    }
 
    struct triangulateio out;
@@ -926,7 +927,7 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
          if (point_almost_equal(ipointPos(m_newPoints[new_vert_indices[jj]].ref), pt))
          {
             vertex_mapping[v_idx] = jj+3;
-            continue;
+            break;
          }
       }
    }
