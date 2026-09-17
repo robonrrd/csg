@@ -154,7 +154,7 @@ uint32_t TriMesh::loadOBJ(const std::string& path)
       {
          Eigen::Vector3d vertex;
          for (int ii=0; ii<3; ++ii)
-            vertex[ii] = strtof(results[ii+1].c_str(), NULL);
+            vertex[ii] = strtod(results[ii+1].c_str(), NULL);
          temp_vertices.push_back(vertex);
       }
 
@@ -162,7 +162,7 @@ uint32_t TriMesh::loadOBJ(const std::string& path)
       {
          Eigen::Vector2d uv;
          for (int ii=0; ii<2; ++ii)
-            uv[ii] = strtof(results[ii+1].c_str(), NULL);
+            uv[ii] = strtod(results[ii+1].c_str(), NULL);
          temp_uvs.push_back(uv);
       }
 
@@ -170,7 +170,7 @@ uint32_t TriMesh::loadOBJ(const std::string& path)
       {
          Eigen::Vector3d normal;
          for (int ii=0; ii<3; ++ii)
-            normal[ii] = strtof(results[ii+1].c_str(), NULL);
+            normal[ii] = strtod(results[ii+1].c_str(), NULL);
          temp_normals.push_back(normal);
       }
 
