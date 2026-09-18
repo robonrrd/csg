@@ -1,8 +1,9 @@
-cmake_minimum_required(VERSION 3.0x)
+cmake_minimum_required(VERSION 3.14)
+
 project (csg)
 set (CMAKE_CXX_STANDARD 11)
 
-set(EIGEN3_INCLUDE_DIR /usr/local/include/eigen3)
+find_package(Eigen3 REQUIRED NO_MODULE)
 
 
 # Generate the shared library
@@ -26,11 +27,10 @@ include_directories( include ${EIGEN3_INCLUDE_DIR} )
 
 # CSG_TEST
 add_executable(csg_test src/csg_test.cpp)
-target_link_libraries(csg_test ${PROJECT_LINK_LIBS})
-
+target_link_libraries(csg_test ${PROJECT_LINK_LIBS} Eigen3::Eigen)
 # AABB_TEST
 add_executable(aabb_test src/aabb_test.cpp)
-target_link_libraries(aabb_test ${PROJECT_LINK_LIBS})
+target_link_libraries(aabb_test ${PROJECT_LINK_LIBS} Eigen3::Eigen)
 
 
 ## SWIG for Python bindings (pycsg)
@@ -38,9 +38,7 @@ target_link_libraries(aabb_test ${PROJECT_LINK_LIBS})
 find_package(SWIG REQUIRED)
 include(${SWIG_USE_FILE})
 
-find_package(PythonLibs)
-include_directories(${PYTHON_INCLUDE_PATH})
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+find_package(Python COMPONENTS Interpreter Development REQUIRED)
 
 set(CMAKE_SWIG_FLAGS "")
 set_source_files_properties(swig/pycsg.i PROPERTIES CPLUSPLUS ON)
@@ -49,12 +47,13 @@ swig_add_library(pycsg
                  TYPE SHARED
                  LANGUAGE python
                  SOURCES swig/pycsg.i src/trimesh.cpp src/aabb.cpp src/triangle.c src/libcsg.cpp)
-swig_link_libraries(pycsg ${PYTHON_LIBRARIES})
+target_link_libraries(pycsg PRIVATE Python::Module)
+set_target_properties(pycsg PROPERTIES SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE)
 
 
 # Install SWIG generated DSOs for Python integration
 install(TARGETS ${SWIG_MODULE_pycsg_REAL_NAME}
-  DESTINATION $ENV{HOME}/.local/lib/python3.6/site-packages)
+  DESTINATION $ENV{HOME}/.local/lib/{python3.14/site-packages)
 
 install(FILES build/pycsg.py
-  DESTINATION  $ENV{HOME}/.local/lib/python3.6/site-packages)
+  DESTINATION  $ENV{HOME}/.local/lib/python3.14/site-packages)
