@@ -40,6 +40,13 @@ include(${SWIG_USE_FILE})
 
 find_package(Python COMPONENTS Interpreter Development REQUIRED)
 
+# Find Python user site-packages directory
+execute_process(
+  COMMAND ${Python_EXECUTABLE} -c "import site; print(site.getusersitepackages())"
+  OUTPUT_VARIABLE PYTHON_USER_SITE_PACKAGES
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
 set(CMAKE_SWIG_FLAGS "")
 set_source_files_properties(swig/pycsg.i PROPERTIES CPLUSPLUS ON)
 set_source_files_properties(swig/pycsg.i PROPERTIES SWIG_FLAGS "")
@@ -53,7 +60,7 @@ set_target_properties(pycsg PROPERTIES SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE)
 
 # Install SWIG generated DSOs for Python integration
 install(TARGETS ${SWIG_MODULE_pycsg_REAL_NAME}
-  DESTINATION $ENV{HOME}/.local/lib/{python3.14/site-packages)
+  DESTINATION ${PYTHON_USER_SITE_PACKAGES})
 
-install(FILES build/pycsg.py
-  DESTINATION  $ENV{HOME}/.local/lib/python3.14/site-packages)
+install(FILES ${CMAKE_BINARY_DIR}/pycsg.py
+  DESTINATION ${PYTHON_USER_SITE_PACKAGES})
