@@ -1,0 +1,40 @@
+# Cube shifted by (0.5, 0.5, 0.5) relative to the unit cube.
+# Overlaps clay_unit_cube in the region (0.5,0.5,0.5) to (1,1,1).
+#
+# This creates many face-face intersections (every face of this cube that
+# overlaps the unit cube will intersect multiple unit-cube faces), exercising
+# the multi-intersection code paths including Bug D (last-kNew-wins in
+# classifyCutFaces) and Bug B (vertex_map cycling in assembleMesh).
+
+v -0.5 -0.5 -0.5
+v  1.5 -0.5 -0.5
+v  1.5  1.5 -0.5
+v -0.5  1.5 -0.5
+v -0.5 -0.5  1.5
+v  1.5 -0.5  1.5
+v  1.5  1.5  1.5
+v -0.5  1.5  1.5
+
+# Bottom (z=-0.5, normal 0,0,-1)
+f 1 3 2
+f 1 4 3
+
+# Top (z=+1.5, normal 0,0,+1)
+f 5 6 7
+f 5 7 8
+
+# Front (y=-0.5, normal 0,-1,0)
+f 1 2 6
+f 1 6 5
+
+# Back (y=+1.5, normal 0,+1,0)
+f 4 8 7
+f 4 7 3
+
+# Left (x=-0.5, normal -1,0,0)
+f 1 5 8
+f 1 8 4
+
+# Right (x=+1.5, normal +1,0,0)
+f 2 3 7
+f 2 7 6

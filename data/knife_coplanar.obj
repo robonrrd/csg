@@ -1,0 +1,17 @@
+# Knife plane coincident with the bottom face (z=-1) of clay_unit_cube.
+#
+# Tests the coplanar code path: all intersections with the two bottom clay
+# triangles are reported as coplanar and skipped.  The knife is deliberately
+# kept inside the cube face (x,y in [-0.5,0.5]) so it does not touch any cube
+# edges, avoiding the degenerate edge-on-plane case in the side faces.
+#
+# With no cut faces produced, classifyFaces has no seed and both outputs will
+# be empty — acceptable behaviour for a fully coplanar knife.
+
+v -0.5 -0.5 -1
+v  0.5 -0.5 -1
+v  0.5  0.5 -1
+v -0.5  0.5 -1
+
+f 1 2 3
+f 1 3 4

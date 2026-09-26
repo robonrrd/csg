@@ -1,0 +1,18 @@
+# Plane x+y+z = 1, expressed as one large triangle.
+#
+# Regression test for Bug 1 (local vs global vertex index in convertIntersectionToIpoints).
+# This plane passes exactly through three vertices of clay_unit_cube:
+#   vertex 3  ( 1,  1, -1)  :  1+1-1 = 1  ✓
+#   vertex 6  ( 1, -1,  1)  :  1-1+1 = 1  ✓
+#   vertex 8  (-1,  1,  1)  : -1+1+1 = 1  ✓
+#
+# When the library computes the intersection of a knife edge with those clay faces
+# it should detect that the intersection endpoints ARE existing clay vertices and
+# store the global mesh index (after Bug 1's fix).  Before the fix, it stored the
+# local face-vertex index (0, 1, or 2) which pointed to the wrong vertex.
+
+v  4 -2 -1
+v -2  4 -1
+v -2 -2  5
+
+f 1 2 3

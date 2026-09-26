@@ -1,0 +1,17 @@
+# Horizontal cutting plane at z=0, normal = (0,0,-1)  (winding reversed vs knife_horiz)
+#
+# Regression test: the triangle normal is exactly -UnitZ (anti-parallel to Z).
+# The cross product n.cross(UnitZ) is again the zero vector, but this time the
+# rotation angle is pi rather than 0, so AngleAxisd(pi, NaN_axis) produces a
+# NaN rotation matrix.  Bug 2's fix detects the near-zero axis and substitutes
+# UnitX as the rotation axis, giving a valid 180-degree flip.
+#
+# Geometrically identical to knife_horiz but with face normals pointing downward.
+
+v -3  3 0
+v  3  3 0
+v  3 -3 0
+v -3 -3 0
+
+f 1 2 3
+f 1 3 4

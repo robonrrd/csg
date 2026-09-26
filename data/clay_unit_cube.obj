@@ -1,0 +1,35 @@
+# Unit cube, vertices at (+/-1, +/-1, +/-1), outward-facing normals
+# Used as the primary clay mesh in CSG tests
+
+v -1 -1 -1
+v  1 -1 -1
+v  1  1 -1
+v -1  1 -1
+v -1 -1  1
+v  1 -1  1
+v  1  1  1
+v -1  1  1
+
+# Bottom face (z=-1, normal 0,0,-1)
+f 1 3 2
+f 1 4 3
+
+# Top face (z=+1, normal 0,0,+1)
+f 5 6 7
+f 5 7 8
+
+# Front face (y=-1, normal 0,-1,0)
+f 1 2 6
+f 1 6 5
+
+# Back face (y=+1, normal 0,+1,0)
+f 4 8 7
+f 4 7 3
+
+# Left face (x=-1, normal -1,0,0)
+f 1 5 8
+f 1 8 4
+
+# Right face (x=+1, normal +1,0,0)
+f 2 3 7
+f 2 7 6

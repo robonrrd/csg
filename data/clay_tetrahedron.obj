@@ -1,0 +1,18 @@
+# Regular tetrahedron inscribed in the unit sphere.
+# All edges have length 2*sqrt(2).  Outward normals verified.
+#
+# Useful as an alternative clay mesh: fewer faces than the cube but all faces
+# are non-axis-aligned, so the generic rotation path in retriangulate() is
+# always exercised (no degenerate zero-axis case).
+
+v  1  1  1
+v  1 -1 -1
+v -1  1 -1
+v -1 -1  1
+
+# Face normals all point outward (verified: each face normal dotted with the
+# vector from tetrahedron centroid (0,0,0) to face centroid is positive)
+f 1 3 2
+f 1 2 4
+f 1 4 3
+f 2 3 4

@@ -1,0 +1,31 @@
+# Two large triangles that both intersect big_triangle.obj at the same line (y=0, z=0).
+#
+# Regression test for Bug D (classifyCutFaces picks the last kNew vertex's
+# opposing face rather than breaking after the first one).
+#
+# Clay: big_triangle.obj  (single large triangle in the z=0 plane, spanning
+#       roughly x in [-5,5], y in [-5,5])
+#
+# This knife contains two triangles with different normals, both crossing the
+# big clay triangle.  Their intersection lines with the clay plane (z=0) are:
+#   Triangle 1  (normal ~ (0,-1,+3)): intersects z=0 at  y =  0
+#   Triangle 2  (normal ~ (0,-1,-3)): intersects z=0 at  y =  0
+#
+# Both knife triangles cut the clay at the same line, so the retriangulated
+# clay sub-faces near that line will have kNew vertices whose kidx values point
+# to DIFFERENT knife triangles.  The classifyCutFaces loop (without a break)
+# overwrites testFace with the last kNew vertex found, which may belong to the
+# wrong knife triangle for a given sub-face.
+
+# Triangle 1: tilted so its lower edge is at z=-2, y=-6 and upper tip at z=+2, y=+6
+v -7 -6 -2
+v  7 -6 -2
+v  0  6  2
+
+# Triangle 2: same footprint but tilted the other way (opposite z-slope)
+v -7 -6  2
+v  7 -6  2
+v  0  6 -2
+
+f 1 2 3
+f 4 5 6
