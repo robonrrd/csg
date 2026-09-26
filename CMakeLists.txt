@@ -33,34 +33,41 @@ add_executable(aabb_test src/aabb_test.cpp)
 target_link_libraries(aabb_test ${PROJECT_LINK_LIBS} Eigen3::Eigen)
 
 
-## SWIG for Python bindings (pycsg)
+enable_testing()
+add_subdirectory(tests)
+
+
+## SWIG for Python bindings (pycsg) — optional; skipped if SWIG is not found
 ##
-find_package(SWIG REQUIRED)
-include(${SWIG_USE_FILE})
+find_package(SWIG)
+if(SWIG_FOUND)
+   include(${SWIG_USE_FILE})
 
-find_package(Python COMPONENTS Interpreter Development REQUIRED)
+   find_package(Python COMPONENTS Interpreter Development REQUIRED)
 
-# Find Python user site-packages directory
-execute_process(
-  COMMAND ${Python_EXECUTABLE} -c "import site; print(site.getusersitepackages())"
-  OUTPUT_VARIABLE PYTHON_USER_SITE_PACKAGES
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-)
+   # Find Python user site-packages directory
+   execute_process(
+     COMMAND ${Python_EXECUTABLE} -c "import site; print(site.getusersitepackages())"
+     OUTPUT_VARIABLE PYTHON_USER_SITE_PACKAGES
+     OUTPUT_STRIP_TRAILING_WHITESPACE
+   )
 
-set(CMAKE_SWIG_FLAGS "")
-set_source_files_properties(swig/pycsg.i PROPERTIES CPLUSPLUS ON)
-set_source_files_properties(swig/pycsg.i PROPERTIES SWIG_FLAGS "")
-swig_add_library(pycsg
-                 TYPE SHARED
-                 LANGUAGE python
-                 SOURCES swig/pycsg.i src/trimesh.cpp src/aabb.cpp src/triangle.c src/libcsg.cpp)
-target_link_libraries(pycsg PRIVATE Python::Module)
-set_target_properties(pycsg PROPERTIES SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE)
+   set(CMAKE_SWIG_FLAGS "")
+   set_source_files_properties(swig/pycsg.i PROPERTIES CPLUSPLUS ON)
+   set_source_files_properties(swig/pycsg.i PROPERTIES SWIG_FLAGS "")
+   swig_add_library(pycsg
+                    TYPE SHARED
+                    LANGUAGE python
+                    SOURCES swig/pycsg.i src/trimesh.cpp src/aabb.cpp src/triangle.c src/libcsg.cpp)
+   target_link_libraries(pycsg PRIVATE Python::Module)
+   set_target_properties(pycsg PROPERTIES SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE)
 
+   # Install SWIG generated DSOs for Python integration
+   install(TARGETS ${SWIG_MODULE_pycsg_REAL_NAME}
+     DESTINATION ${PYTHON_USER_SITE_PACKAGES})
 
-# Install SWIG generated DSOs for Python integration
-install(TARGETS ${SWIG_MODULE_pycsg_REAL_NAME}
-  DESTINATION ${PYTHON_USER_SITE_PACKAGES})
-
-install(FILES ${CMAKE_BINARY_DIR}/pycsg.py
-  DESTINATION ${PYTHON_USER_SITE_PACKAGES})
+   install(FILES ${CMAKE_BINARY_DIR}/pycsg.py
+     DESTINATION ${PYTHON_USER_SITE_PACKAGES})
+else()
+   message(STATUS "SWIG not found — Python bindings (pycsg) will not be built")
+endif()
