@@ -31,6 +31,58 @@ constexpr uint32_t POINT_ULP = 2; // the threshhold for point equality
 //
 // Helper functions
 //
+
+// A simple disjoint-set (union-find) structure, used to weld clusters
+// of approximately-coincident vertices into a single canonical
+// representative.  My previous "map each point to its nearest
+// already-seen match" scheme was not transitive: for a chain of
+// points A~B~C (A close to B, B close to C, but A NOT close enough to
+// C), that scheme can leave A and C resolved to two different final
+// vertices instead of one. This contributes to triangle sliver problems
+// further down the line.
+// Union-find (with path compression, and union-by-smallest-index so
+// that e.g. original mesh vertices are always preferred as the
+// representative) guarantees every point in a connected cluster
+// resolves to the same root, regardless of the order in which matches
+// are discovered.
+class UnionFind
+{
+ public:
+   explicit UnionFind(size_t n) : m_parent(n)
+   {
+      for (size_t ii = 0; ii < n; ++ii)
+         m_parent[ii] = static_cast<uint32_t>(ii);
+   }
+
+   uint32_t find(uint32_t x)
+   {
+      while (m_parent[x] != x)
+      {
+         m_parent[x] = m_parent[m_parent[x]];
+         x = m_parent[x];
+      }
+      return x;
+   }
+
+   void unite(uint32_t a, uint32_t b)
+   {
+      const uint32_t ra = find(a);
+      const uint32_t rb = find(b);
+      if (ra == rb)
+         return;
+      // Union by smallest index, so lower-indexed (e.g. original mesh)
+      // vertices are always preferred as the canonical representative.
+      if (ra < rb)
+         m_parent[rb] = ra;
+      else
+         m_parent[ra] = rb;
+   }
+
+ private:
+   std::vector<uint32_t> m_parent;
+};
+
+
 template <class T>
 typename std::enable_if<!std::numeric_limits<T>::is_integer, bool>::type
 almost_equal(T x, T y, uint32_t ulp)
@@ -892,13 +944,12 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
    // triangulate is extremely precise and may create vertices which are the
    // same for any reasonable geometric purpose. Here, we weld all vertices that
    // are closer than some epsilon. We do this in a brute-force way because
-   // we'll have very few vertices in this function
+   // we'll have very few vertices in this function.
+   //
+   // Points 0,1,2 are the triangle's primal vertices; points 3.. are the new
+   // (intersection) points. 
    const size_t num_initial_verts = 3 + new_vert_indices.size();
-   std::vector<uint32_t> vertex_mapping(num_initial_verts);
-   for (size_t ii=0; ii<num_initial_verts; ++ii)
-   {
-      vertex_mapping[ii] = ii;
-   }
+   UnionFind uf(num_initial_verts);
 
    for (size_t ii=0; ii<new_vert_indices.size(); ++ii)
    {
@@ -906,30 +957,23 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
       // Test against primal points
       const Eigen::Vector3d pt = ipointPos(m_newPoints[new_vert_indices[ii]].ref);
       if (point_almost_equal(p0, pt))
-      {
-         vertex_mapping[v_idx] = 0;
-         continue;
-      }
+         uf.unite(v_idx, 0);
       if (point_almost_equal(p1, pt))
-      {
-         vertex_mapping[v_idx] = 1;
-         continue;
-      }
+         uf.unite(v_idx, 1);
       if (point_almost_equal(p2, pt))
+         uf.unite(v_idx, 2);
+
+      for (size_t jj=0; jj<ii; ++jj)
       {
-         vertex_mapping[v_idx] = 2;
-         continue;
-      }
-      for (size_t jj=0; jj<new_vert_indices.size(); ++jj)
-      {
-         if (jj >= ii)
-            continue;
          if (point_almost_equal(ipointPos(m_newPoints[new_vert_indices[jj]].ref), pt))
-         {
-            vertex_mapping[v_idx] = jj+3;
-            break;
-         }
+            uf.unite(v_idx, jj+3);
       }
+   }
+
+   std::vector<uint32_t> vertex_mapping(num_initial_verts);
+   for (size_t ii=0; ii<num_initial_verts; ++ii)
+   {
+      vertex_mapping[ii] = uf.find(ii);
    }
 
 #ifdef DEBUG
@@ -1324,17 +1368,20 @@ TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
    //
 
    // 'vertex_map' maps from the unwelded vertex numbering to the welded
-   // numbering
-   std::vector<uint32_t> vertex_map(num_total_points, UINT32_MAX);
+   // numbering. We use union-find (rather than mapping each new point to a
+   // single arbitrary "first" AABB match) so that clusters of 3+ mutually
+   // -close points all resolve to one canonical vertex instead of splitting
+   // across two or more nearly-coincident output vertices. Union-by-smallest
+   // -index means original mesh vertices (which have the lowest indices)
+   // are always preferred as the representative if a duplicate shows up,
+   // matching the original intent.
    AABBTree tree(0.05, num_total_points);
+   UnionFind uf(num_total_points);
 
    // Add original mesh vertices
    for (uint32_t ii=0; ii<num_original_points; ++ii)
    {
       tree.addSphere(ii, original_mesh.vertices()[ii], radius);
-      // we declare that 'original_mesh' vertices come first and therefore are always
-      // used if a duplicate point shows up
-      vertex_map[ii] = ii;
    }
 
    // Add opposite mesh vertices
@@ -1342,7 +1389,6 @@ TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
    {
       const uint32_t idx = ii+num_original_points;
       tree.addSphere(idx, opposite_mesh.vertices()[ii], radius);
-      vertex_map[idx] = idx;
    }
 
    // Add new points created by intersections
@@ -1352,20 +1398,18 @@ TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
       tree.addSphere(idx, m_newPointPositions[ii], radius);
    }
 
-   // Query the tree with every new point, to detect duplicates
+   // Query the tree with every new point, to detect and union duplicates
    for (uint32_t ii=0; ii<num_new_points; ++ii)
    {
-      const size_t idx = ii+num_original_points+num_opposite_points;
+      const uint32_t idx = ii+num_original_points+num_opposite_points;
       auto dupes = tree.query(idx);
-      if (dupes.size() == 0)
-      {
-         vertex_map[idx] = idx;
-      }
-      else
-      {
-         vertex_map[idx] = dupes[0]; // use the first
-      }
+      for (uint32_t dupe : dupes)
+         uf.unite(idx, dupe);
    }
+
+   std::vector<uint32_t> vertex_map(num_total_points);
+   for (uint32_t ii=0; ii<num_total_points; ++ii)
+      vertex_map[ii] = uf.find(ii);
 
    std::vector<VECTOR3D> vertices;
    std::vector<VECTOR3I> faces;
@@ -1455,37 +1499,29 @@ TriMesh CSGEngine::mergeMeshes(const TriMesh& exterior, const TriMesh& cap)
       tree.addSphere(idx, cap.vertices()[ii], radius);
    }
 
-   // Query the tree with every vertex to detect duplicates
+   // Query the tree with every vertex to detect and union duplicates.
    // 'vertex_map' maps from the unwelded vertex numbering to the welded
-   // numbering
-   std::vector<uint32_t> vertex_map(num_total_vertices, UINT32_MAX);
+   // numbering. Union-find guarantees clusters of 3+ mutually-close vertices
+   // all resolve to a single canonical vertex; union-by-smallest-index means
+   // exterior vertices (lower indices) are preferred as the representative.
+   UnionFind uf(num_total_vertices);
    for (size_t ii=0; ii<num_ext_vertices; ++ii)
    {
       auto dupes = tree.query(ii);
-      if (dupes.size() == 0)
-      {
-         vertex_map[ii] = ii;
-      }
-      else
-      {
-         std::sort(dupes.begin(), dupes.end(), std::less<uint32_t>());
-         vertex_map[ii] = dupes[0]; // use the first (smallest)
-      }
+      for (uint32_t dupe : dupes)
+         uf.unite(ii, dupe);
    }
    for (size_t ii=0; ii<num_cap_vertices; ++ii)
    {
       const uint32_t idx = ii+num_ext_vertices;
       auto dupes = tree.query(idx);
-      if (dupes.size() == 0)
-      {
-         vertex_map[idx] = idx;
-      }
-      else
-      {
-         std::sort(dupes.begin(), dupes.end(), std::less<uint32_t>());
-         vertex_map[idx] = dupes[0]; // use the first (smallest)
-      }
+      for (uint32_t dupe : dupes)
+         uf.unite(idx, dupe);
    }
+
+   std::vector<uint32_t> vertex_map(num_total_vertices);
+   for (uint32_t ii=0; ii<num_total_vertices; ++ii)
+      vertex_map[ii] = uf.find(ii);
 
    // Construct the merged mesh
    TriMesh output;
