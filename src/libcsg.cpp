@@ -683,20 +683,19 @@ std::vector<IPoint> CSGEngine::convertIntersectionToIpoints(const TriangleInters
       {
          // This point is a clay mesh vertex
          pts[jj].ref.parent = kClay;
-         pts[jj].ref.idx = clay_v_idx;
+         pts[jj].ref.idx = ct.m_v[clay_v_idx];
       }
       else if ((clay_v_idx == 4) && (knife_v_idx < 4))
       {
          // This point is a knife mesh vertex
          pts[jj].ref.parent = kKnife;
-         pts[jj].ref.idx = knife_v_idx;
+         pts[jj].ref.idx = kt.m_v[knife_v_idx];
       }
       else if ((clay_v_idx < 4) && (knife_v_idx < 4))
       {
-         // This point is a vertex on both clay and knife
+         // This point is a vertex on both clay and knife; store the clay global index
          pts[jj].ref.parent = kBoth;
-         // TODO: should  we preserve both clay and knife vert indices here?
-         pts[jj].ref.idx = clay_v_idx;
+         pts[jj].ref.idx = ct.m_v[clay_v_idx];
       }
       else
       {
@@ -836,7 +835,7 @@ CSGEngine::CSGEngine(const TriMesh& in_clay, const TriMesh& in_knife)
 
 const Eigen::Vector3d& CSGEngine::ipointPos(const IPointRef& ref) const
 {
-   if (ref.parent == kClay)
+   if ((ref.parent == kClay) || (ref.parent == kBoth))
       return m_clay.vertices()[ref.idx];
    else if (ref.parent == kKnife)
       return m_knife.vertices()[ref.idx];
