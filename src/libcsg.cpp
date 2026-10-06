@@ -1079,6 +1079,12 @@ std::vector<char> CSGEngine::classifyCutFaces(const std::vector<IFace>& in_faces
          }
       }
 
+      // No kNew vertex found: this sub-face touches no intersection point, so
+      // we have no reliable reference to classify it here.  Leave status at 0
+      // and let the flood-fill in classifyFaces() propagate the correct label.
+      if (testFace.parent == kNone)
+         continue;
+
       // TODO: precompute or lazily compute face normals
       Eigen::Vector3d normal;
       Eigen::Vector3d center;
