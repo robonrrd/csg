@@ -884,9 +884,25 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
    const Eigen::Vector3d& p2 = mesh.vertices()[mesh.faces()[fidx].m_v[2]];
 
    const Eigen::Vector3d n = (p1 - p0).normalized().cross((p2 - p0).normalized());  // normal
-   const Eigen::Vector3d axis = n.cross(Eigen::Vector3d::UnitZ()).normalized();
-   const double angle = acos(n[2]);
-   const Eigen::Matrix3d rot = Eigen::AngleAxisd(angle, axis).matrix();
+
+   // Rotate the triangle into the XY plane.  When n is parallel (or anti-parallel)
+   // to UnitZ the cross product n×UnitZ is the zero vector, so we must special-case
+   // those two orientations to avoid a NaN rotation axis.
+   Eigen::Matrix3d rot;
+   if (n[2] > 1.0 - 1e-10)
+   {
+      rot = Eigen::Matrix3d::Identity();
+   }
+   else if (n[2] < -(1.0 - 1e-10))
+   {
+      rot = Eigen::AngleAxisd(M_PI, Eigen::Vector3d::UnitX()).matrix();
+   }
+   else
+   {
+      const Eigen::Vector3d axis = n.cross(Eigen::Vector3d::UnitZ()).normalized();
+      const double angle = acos(n[2]);
+      rot = Eigen::AngleAxisd(angle, axis).matrix();
+   }
 
    std::vector<VECTOR3D> pts_2d(numPoints);
    pts_2d[0] = rot * p0;
@@ -1018,6 +1034,11 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
 
    free(in.pointlist);
    free(in.segmentlist);
+   if (out.pointlist)         trifree((int*)out.pointlist);
+   if (out.pointmarkerlist)   trifree(out.pointmarkerlist);
+   if (out.trianglelist)      trifree(out.trianglelist);
+   if (out.segmentlist)       trifree(out.segmentlist);
+   if (out.segmentmarkerlist) trifree(out.segmentmarkerlist);
 
    return new_faces;
 
