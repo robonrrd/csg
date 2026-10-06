@@ -1719,8 +1719,13 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
        // are the faces _inside_ the clay.
        TriMesh knife_below = assembleMesh(kKnife, BELOW, new_knife_faces, knife_cut_face_status,
                                           knife_uncut_face_status);
+       // We need to flip the normals for the cap for out_B
+       TriMesh knife_below_flipped = knife_below;
+       for (auto& face : knife_below_flipped.faces())
+           std::swap(face.m_v[1], face.m_v[2]);
+
        out_A = mergeMeshes(clay_above, knife_below);
-       out_B = mergeMeshes(clay_below, knife_below);
+       out_B = mergeMeshes(clay_below, knife_below_flipped);
    }
    else
    {
