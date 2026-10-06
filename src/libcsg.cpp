@@ -1385,7 +1385,7 @@ TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
 
    const size_t num_original_points = original_mesh.vertices().size();
    const size_t num_opposite_points = opposite_mesh.vertices().size();
-   const size_t num_new_points = m_newPoints.size();
+   const size_t num_new_points = m_newPointPositions.size();
    const size_t num_total_points = num_original_points + num_opposite_points + num_new_points;
    const double radius = 1e-06; // TODO: express in ULP
 
