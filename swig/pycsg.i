@@ -18,7 +18,10 @@ namespace std {
   %template(UnsignedIntVector) vector<unsigned int>;
 }
 
-%include "triangle.h"
+// triangle.h is intentionally NOT %include-d here: it is an internal
+// implementation detail (Shewchuk's triangulator) and is not part of the
+// public Python API.  It is included above in the %{ %} block so that the
+// compiled wrapper code can see it, but SWIG does not parse it.
 %include "trimesh.h"
 %include "aabb.h"
 %include "libcsg.h"
