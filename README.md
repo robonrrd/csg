@@ -4,14 +4,13 @@ This is a clean re-implementation of work I did years ago at a visual effects co
 be operated on do not need to be solid (*i.e.* watertight) or even manifold.
 
 ## Current Status ##
-### May 4, 2020 ###
-All major pieces of functionality are working in limited tests.  Only
-'difference' operations are currently supported, with or without watertight
+All major pieces of functionality are working in limited tests (with one documented exception).
+
+Only 'difference' operations are currently supported, with or without watertight
 "capping."  Intersection and union operations are variations of the existing
 code, but I want to do more debugging and optimizations before implementation.
-No support for preserving normals or UVs.  Poor handling of edge and corner
-cases.  Output is a triangulated mesh, with the "triangle sliver" problem that
-comes along with that.
+No support yet for preserving normals or UVs. Output is a triangulated mesh, with the "triangle
+sliver" problem that comes along with that.
 
 
 ## Dependencies ##
@@ -34,9 +33,10 @@ mkdir build
 cd build
 cmake ..
 make
+make tests
 ```
 ## To Use in Blender ##
-After making the project, as described above, run ```make install``` to install the DSOs into your local Python 3.6 site packages. Then, in Blender, go to 'User Preferences' and select 'Install Addon From File.'  Install the ```csg.py``` file, found in the ```blender``` directory and enable it (by clicking the empty square next to the name).  To use the CSG tool, select two triangulated meshes: the clay first, then the knife. Execue the CSG operation (space bar, then type 'CSG') and two triangulated meshes will be created: one for the portion of the clay mesh above the knife, one for the portion of the clay mesh below the knife.
+After making the project, as described above, the DSOs will be installed into your local Python 3 site packages. When  in Blender, go to 'User Preferences' and select 'Install Addon From File.'  Install the ```csg.py``` file, found in the ```blender``` directory and enable it (by clicking the empty square next to the name).  To use the CSG tool, select two triangulated meshes: the clay first, then the knife. Execute the CSG operation (space bar, then type 'CSG') and two triangulated meshes will be created: one for the portion of the clay mesh above the knife, one for the portion of the clay mesh below the knife.
 
 ## Explanation of the Algorithm ##
 Essentially, the CSG algorithm finds all intersections of the triangles in mesh "A" and
