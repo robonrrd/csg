@@ -1005,12 +1005,10 @@ void AABBTree::validateMetrics(uint32_t node) const
 std::unordered_set<std::pair<uint32_t, uint32_t>> AABBTree::intersect(const AABBTree& tree)
 {
     std::unordered_set<std::pair<uint32_t, uint32_t>> intersections;
-    for (uint32_t ii=0; ii<numObjects(); ++ii)
-    {
-        std::vector<uint32_t> interx = tree.query(getAABB(ii));
-        for (const auto& ix : interx)
-            intersections.emplace(std::make_pair(ii, ix));
-    }
+
+    for (const auto& kv : externalMap)
+      for (uint32_t ix : tree.query(getAABB(kv.first)))
+        intersections.emplace(kv.first, ix);
 
     std::cout << intersections.size() << " potential intersections found"
               << std::endl;
