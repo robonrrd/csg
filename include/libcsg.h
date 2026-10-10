@@ -1,4 +1,6 @@
 // Public API for CSG library
+#pragma once
+
 #include <Eigen/Core>
 #include <Eigen/StdVector>
 #include <string>
