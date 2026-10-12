@@ -701,6 +701,7 @@ std::vector<IPoint> CSGEngine::convertIntersectionToIpoints(const TriangleInters
       {
          // A new point
          m_newPointPositions.push_back(ix.p[jj]);
+         m_newPointFaces.push_back(std::make_pair(cidx, kidx));
          pts[jj].ref.parent = kNew;
          pts[jj].ref.idx = m_newPointPositions.size()-1;
       }
@@ -1066,15 +1067,19 @@ std::vector<char> CSGEngine::classifyCutFaces(const std::vector<IFace>& in_faces
       {
          if (ff.v[ii].parent == kNew)
          {
+            // For a kNew reference 'idx' indexes m_newPointPositions (not
+            // m_newPoints, which also holds points that are existing vertices),
+            // so the creating faces are looked up in the parallel array.
+            const std::pair<uint32_t, uint32_t>& faces = m_newPointFaces[ff.v[ii].idx];
             if (which_surface == kClay)
             {
                testFace.parent = kKnife;
-               testFace.idx = m_newPoints[ff.v[ii].idx].kidx;
+               testFace.idx = faces.second;
             }
             else
             {
                testFace.parent = kClay;
-               testFace.idx = m_newPoints[ff.v[ii].idx].cidx;
+               testFace.idx = faces.first;
             }
          }
       }

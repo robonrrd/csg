@@ -157,6 +157,10 @@ class CSGEngine
 
    // The positions of the genuinely new points created by triangle intersections
    std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> m_newPointPositions;
+
+   // For each entry of m_newPointPositions, the (clay face, knife face) pair whose
+   // intersection created it.  Indexed like m_newPointPositions (NOT m_newPoints).
+   std::vector<std::pair<uint32_t, uint32_t>> m_newPointFaces;
 };
 
 
