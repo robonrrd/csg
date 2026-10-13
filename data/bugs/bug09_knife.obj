@@ -1,0 +1,15 @@
+# BUG-9 reproduction: knife. One large triangle in the plane x+y+z=1 that
+# contains (1,0,0), (0,1,0) and (0,0,1), i.e. it touches the clay cube
+# (bug9_clay.obj) exactly at three of its vertices and cuts through the
+# interior faces between them.
+#
+# Expected: corner tetrahedron (volume 1/6) and remainder (volume 5/6).
+# Actual:   the clay sub-faces whose vertices are all original clay vertices
+#           are classified 0 and never labelled by the flood fill, so they are
+#           missing from both outputs.
+
+v  3 -1 -1
+v -1  3 -1
+v -1 -1  3
+
+f 1 2 3

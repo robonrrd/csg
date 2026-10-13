@@ -11,9 +11,9 @@ main(int argc, char *argv[])
    using namespace CSG;
 
 
-   if (argc != 3)
+   if (argc != 3 && argc != 4)
    {
-       std::cout << "Usage: csg_test CLAY_OBJ_FILE  KNIFE_OBJ_FILE" << std::endl;
+       std::cout << "Usage: csg_test CLAY_OBJ_FILE  KNIFE_OBJ_FILE [nocap]" << std::endl;
        return 0;
    }
 
@@ -32,7 +32,7 @@ main(int argc, char *argv[])
    CSG::CSGEngine engine(clay, knife);
 
    CSGOperation operation = CSGOperation::kDifference;
-   bool cap = true; // create end-caps for solid output?
+   bool cap = !(argc == 4 && std::string(argv[3]) == "nocap"); // create end-caps for solid output?
    TriMesh A, B;
    engine.construct(operation, cap, A, B);
 
