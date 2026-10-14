@@ -295,10 +295,10 @@ Eigen::Vector3d TriMesh::faceNormalImpl(uint32_t f) const
     // TODO: lazily evaluate face normals and store them
 
     const Triangle& face = faces()[f];
-    const Eigen::Vector3d p01 = (m_vertices[face.m_v[1]] - m_vertices[face.m_v[0]]).normalized();
-    const Eigen::Vector3d p12 = (m_vertices[face.m_v[2]] - m_vertices[face.m_v[1]]).normalized();
+    const Eigen::Vector3d p01 = m_vertices[face.m_v[1]] - m_vertices[face.m_v[0]];
+    const Eigen::Vector3d p12 = m_vertices[face.m_v[2]] - m_vertices[face.m_v[1]];
 
-    return p01.cross(p12);
+    return p01.cross(p12).normalized();
 }
 
 
