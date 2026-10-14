@@ -1616,6 +1616,46 @@ TriMesh CSGEngine::mergeMeshes(const TriMesh& exterior, const TriMesh& cap)
 }
 
 
+// Returns (number of edges where the cap's winding is consistent with the
+// exterior's) - (number where it is inconsistent), among the edges they share
+// in a merged (welded) mesh whose first 'num_exterior_faces' faces are the
+// exterior.  A positive result means the cap is oriented correctly; negative
+// means it should be flipped; zero means there is no evidence either way.
+static int capWindingAgreement(const TriMesh& merged, size_t num_exterior_faces)
+{
+   std::set<std::pair<int32_t, int32_t>> exterior_edges;  // directed
+   const auto& faces = merged.faces();
+   for (size_t ff = 0; ff < num_exterior_faces; ++ff)
+      for (int ii = 0; ii < 3; ++ii)
+         exterior_edges.insert({faces[ff].m_v[ii], faces[ff].m_v[(ii + 1) % 3]});
+
+   int agreement = 0;
+   for (size_t ff = num_exterior_faces; ff < faces.size(); ++ff)
+   {
+      for (int ii = 0; ii < 3; ++ii)
+      {
+         const int32_t a = faces[ff].m_v[ii];
+         const int32_t b = faces[ff].m_v[(ii + 1) % 3];
+         if (exterior_edges.count({b, a}))
+            ++agreement;  // opposite direction: consistent
+         if (exterior_edges.count({a, b}))
+            --agreement;  // same direction: inconsistent
+      }
+   }
+   return agreement;
+}
+
+
+TriMesh CSGEngine::mergeWithCap(const TriMesh& exterior, const TriMesh& cap,
+                                const TriMesh& cap_flipped)
+{
+   TriMesh merged = mergeMeshes(exterior, cap);
+   if (capWindingAgreement(merged, exterior.faces().size()) < 0)
+      return mergeMeshes(exterior, cap_flipped);
+   return merged;
+}
+
+
 void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriMesh& out_B)
 {
    // Create and intersect AABB trees
@@ -1736,13 +1776,15 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
        // are the faces _inside_ the clay.
        TriMesh knife_below = assembleMesh(kKnife, BELOW, new_knife_faces, knife_cut_face_status,
                                           knife_uncut_face_status);
-       // We need to flip the normals for the cap for out_B
        TriMesh knife_below_flipped = knife_below;
        for (auto& face : knife_below_flipped.faces())
            std::swap(face.m_v[1], face.m_v[2]);
 
-       out_A = mergeMeshes(clay_above, knife_below);
-       out_B = mergeMeshes(clay_below, knife_below_flipped);
+       // Which orientation of the cap closes each half depends on the knife's
+       // normal relative to the clay, so pick whichever winding is consistent
+       // with the exterior along their shared (cut) edges.
+       out_A = mergeWithCap(clay_above, knife_below, knife_below_flipped);
+       out_B = mergeWithCap(clay_below, knife_below, knife_below_flipped);
    }
    else
    {

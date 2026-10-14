@@ -142,6 +142,11 @@ class CSGEngine
 
    TriMesh mergeMeshes(const TriMesh& exterior, const TriMesh& cap);
 
+   // Merges 'exterior' with whichever of 'cap' / 'cap_flipped' has winding that
+   // is consistent with it along shared edges
+   TriMesh mergeWithCap(const TriMesh& exterior, const TriMesh& cap,
+                        const TriMesh& cap_flipped);
+
    // Get a reference to the mesh specified by IParent
    const TriMesh& getMesh(IParent which_mesh) { return (which_mesh == kClay) ? m_clay : m_knife; }
    const TriMesh& otherMesh(IParent which_mesh) { return (which_mesh == kClay) ? m_knife : m_clay; }
