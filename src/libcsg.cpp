@@ -884,7 +884,7 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
    const Eigen::Vector3d& p1 = mesh.vertices()[mesh.faces()[fidx].m_v[1]];
    const Eigen::Vector3d& p2 = mesh.vertices()[mesh.faces()[fidx].m_v[2]];
 
-   const Eigen::Vector3d n = (p1 - p0).normalized().cross((p2 - p0).normalized());  // normal
+   const Eigen::Vector3d n = ((p1 - p0).cross((p2 - p0)).normalized();  // normal
 
    // Rotate the triangle into the XY plane.  When n is parallel (or anti-parallel)
    // to UnitZ the cross product n×UnitZ is the zero vector, so we must special-case
