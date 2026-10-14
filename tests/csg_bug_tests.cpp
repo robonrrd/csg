@@ -133,9 +133,38 @@ static void test_bug09_touching_faces_are_kept()
 }
 
 // ===========================================================================
+// BUG-10: classifyCutFaces() looked up the cutting face with the wrong index
+//
+// The knife is a V-shaped fold (two triangles, normals pointing up) whose
+// crease lies along the bottom-left edge of the unit cube, so some intersection
+// points are existing cube vertices.  Those points shift the indices of
+// m_newPoints relative to m_newPointPositions, and the wrong knife triangle was
+// used to decide which side of the knife a sub-face of the top face is on.
+//
+// Surface: z = max(-2x, 2x).  On the top face (z=1) the region above the knife
+// is |x| < 0.5, i.e. exactly half of the face.
+// ===========================================================================
+
+static void test_bug10_cutting_face_lookup()
+{
+   const CSG::TriMesh clay = meshcheck::makeBox(Eigen::Vector3d(0, 0, 0), Eigen::Vector3d(1, 1, 1));
+   const CSG::TriMesh knife = meshcheck::makeTriangles({
+      {0, -6, 0,   0, 6, 0,   -6, 0, 12},   // x < 0 half of the fold
+      {0, -6, 0,   6, 0, 12,  0, 6, 0}});   // x > 0 half of the fold
+   CSG::TriMesh A, B;
+   construct(clay, knife, false, A, B);
+
+   const double topA = meshcheck::areaOnPlane(A, Eigen::Vector3d::UnitZ(), 1.0);
+   const double topB = meshcheck::areaOnPlane(B, Eigen::Vector3d::UnitZ(), 1.0);
+   CHECK_NEAR(topA, 0.5, 1e-9);
+   CHECK_NEAR(topB, 0.5, 1e-9);
+}
+
+// ===========================================================================
 
 int main()
 {
+   run("bug10_cutting_face_lookup", test_bug10_cutting_face_lookup);
    runKnownBug("bug09_touching_faces_are_kept", "BUG-9", test_bug09_touching_faces_are_kept);
 
    const int total = g_pass + g_fail + g_xfail + g_xpass;

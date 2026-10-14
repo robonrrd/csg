@@ -1,0 +1,12 @@
+# BUG-10 reproduction: V-shaped knife (use with bug09_clay.obj, the unit cube).
+# Surface z = max(-2x, 2x); the crease lies along the bottom-left edge of the
+# cube, so some intersection points are existing cube vertices.  Normals point
+# up (+z).  On the top face the region above the knife is half of the face.
+
+v  0 -6  0
+v  0  6  0
+v -6  0 12
+v  6  0 12
+
+f 1 2 3
+f 1 4 2
