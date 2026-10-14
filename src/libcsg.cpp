@@ -1572,10 +1572,11 @@ TriMesh CSGEngine::mergeMeshes(const TriMesh& exterior, const TriMesh& cap)
       Eigen::Vector3i face;
       for (uint32_t jj=0; jj<3; ++jj)
       {
-         const uint32_t idx = exterior.faces()[ii].m_v[jj];
+         const uint32_t local_idx = exterior.faces()[ii].m_v[jj];
+         const uint32_t idx = vertex_map[local_idx];
          if (used_map[idx] == UINT32_MAX)
          {
-            vertices.push_back( exterior.vertices()[idx] );
+            vertices.push_back( exterior.vertices()[local_idx] );
             face[jj] = count;
             used_map[idx] = count;
             count++;
@@ -1594,7 +1595,7 @@ TriMesh CSGEngine::mergeMeshes(const TriMesh& exterior, const TriMesh& cap)
       for (uint32_t jj=0; jj<3; ++jj)
       {
          const uint32_t cfvi = cap.faces()[ii].m_v[jj];
-         const uint32_t idx = cfvi + num_ext_vertices;
+         const uint32_t idx = vertex_map[cfvi + num_ext_vertices];
          if (used_map[idx] == UINT32_MAX)
          {
             vertices.push_back( cap.vertices()[cfvi] );
