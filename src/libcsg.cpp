@@ -2,8 +2,11 @@
 //
 //
 //
+#include <algorithm>
 #include <assert.h>
+#include <cmath>
 #include <iomanip>      // std::setprecision
+#include <limits>
 #include <set>
 #include <stack>
 #include <unordered_map>
@@ -792,34 +795,36 @@ const Eigen::Vector3d centroid(const TriMesh& mesh, uint32_t ff)
 }
 
 
-// For debugging
-double triangleAspectRatio(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1,
-                           const Eigen::Vector3d& p2)
-{
-   // Ratio between longest and shortest leg
-   const double d01 = (p0-p1).norm();
-   const double d12 = (p1-p2).norm();
-   const double d20 = (p2-p0).norm();
-
-   const double mmax = std::max(std::max(d01, d12), d20);
-   const double mmin = std::min(std::min(d01, d12), d20);
-
-   return mmax/mmin;
-}
-
+// The shortest altitude of a triangle.  It is the altitude onto the longest
+// edge, 2*area/longest, with the area taken from the cross product's norm.
+// (Heron's formula is not usable here: for sliver triangles it subtracts nearly
+// equal numbers, can go slightly negative, and then yields NaN.)
 double triangleAltitude(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1,
                         const Eigen::Vector3d& p2)
 {
-   const double a = (p0-p1).norm();
-   const double b = (p1-p2).norm();
-   const double c = (p2-p0).norm();
-   const double s = (a+b+c)*0.5;
+   const double longest = std::sqrt(std::max(std::max((p0-p1).squaredNorm(),
+                                                       (p1-p2).squaredNorm()),
+                                             (p2-p0).squaredNorm()));
+   if (longest == 0.0)
+      return 0.0;
 
-   const double h_a = 2*sqrt(s*(s-a)*(s-b)*(s-c))/a;
-   const double h_b = 2*sqrt(s*(s-a)*(s-b)*(s-c))/b;
-   const double h_c = 2*sqrt(s*(s-a)*(s-b)*(s-c))/c;
+   return (p1-p0).cross(p2-p0).norm() / longest;
+}
 
-   return std::min(std::min(h_a, h_b), h_c);
+// Ratio between the longest edge and the shortest altitude. A well-shaped
+// triangle has a ratio of order one; a sliver (or a collapsed triangle, for
+// which the ratio is infinite) has a large one.
+double triangleAspectRatio(const Eigen::Vector3d& p0, const Eigen::Vector3d& p1,
+                           const Eigen::Vector3d& p2)
+{
+   const double longest = std::sqrt(std::max(std::max((p0-p1).squaredNorm(),
+                                                       (p1-p2).squaredNorm()),
+                                             (p2-p0).squaredNorm()));
+   const double altitude = triangleAltitude(p0, p1, p2);
+   if (altitude == 0.0)
+      return std::numeric_limits<double>::infinity();
+
+   return longest / altitude;
 }
 
 
@@ -851,19 +856,30 @@ bool CSGEngine::degenerateTriangle(const IFace& face) const
    if ((face.v[0] == face.v[1]) || (face.v[0] == face.v[2]) || (face.v[1] == face.v[2]))
       return true;
 
-   // Check for bad aspect ratio
-   const double BAD_VALUE = 1e+10; // TODO
-   const double aspect_ratio = triangleAspectRatio(ipointPos(face.v[0]), ipointPos(face.v[1]),
-                                                   ipointPos(face.v[2]));
-   if (aspect_ratio > BAD_VALUE)
+   const Eigen::Vector3d& p0 = ipointPos(face.v[0]);
+   const Eigen::Vector3d& p1 = ipointPos(face.v[1]);
+   const Eigen::Vector3d& p2 = ipointPos(face.v[2]);
+
+   // Both tests below are in units in the last place, like point equality: a
+   // triangle is degenerate when its shape cannot be told from a line or a
+   // point at the precision the coordinates carry.
+   constexpr double ulp = std::numeric_limits<double>::epsilon() * POINT_ULP;
+
+   // Squashed triangle: the shortest altitude is below the resolution of the
+   // coordinates themselves, so the apex is within point-equality distance of
+   // the line through the opposite edge.  (The comparison is written so that a
+   // NaN altitude, from non-finite coordinates, also counts as degenerate.)
+   const double coord_magnitude = std::max(p0.cwiseAbs().maxCoeff(),
+                                  std::max(p1.cwiseAbs().maxCoeff(), p2.cwiseAbs().maxCoeff()));
+   const double min_altitude = triangleAltitude(p0, p1, p2);
+   if (!(min_altitude > ulp * coord_magnitude))
       return true;
 
-   // Check for bad altitude (a squashed triangle)
-   const double BAD_ALTITUDE = 1e-6; // TODO
-   const double min_altitude = triangleAltitude(ipointPos(face.v[0]), ipointPos(face.v[1]),
-                                                 ipointPos(face.v[2]));
-
-   if (min_altitude < BAD_ALTITUDE)
+   // Bad aspect ratio: the shortest altitude is below the resolution of the
+   // triangle's own longest edge. This catches slivers far from the origin
+   // or tiny triangles that the test above would let through.
+   const double aspect_ratio = triangleAspectRatio(p0, p1, p2);
+   if (!(aspect_ratio < 1.0 / ulp))
       return true;
 
    return false;
