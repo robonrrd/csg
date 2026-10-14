@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.14)
 
 project (csg)
+include(GNUInstallDirs)
 set (CMAKE_CXX_STANDARD 11)
 
 find_package(Eigen3 REQUIRED NO_MODULE)
@@ -17,8 +18,6 @@ add_library(csg SHARED
 
 SET(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -g")
 
-# Set the location for library installation
-#install(TARGETS csg DESTINATION lib)
 
 set ( PROJECT_LINK_LIBS csg)
 link_directories( build lib )
@@ -45,12 +44,17 @@ if(SWIG_FOUND)
    if(Python_FOUND)
       include(${SWIG_USE_FILE})
 
-      # Find Python user site-packages directory
+      # Python install location. Defaults to the invoking user's site-packages
+      # (resolved at configure time, so run cmake as the user, not via sudo);
+      # override with -DPYCSG_INSTALL_DIR=...
       execute_process(
         COMMAND ${Python_EXECUTABLE} -c "import site; print(site.getusersitepackages())"
-        OUTPUT_VARIABLE PYTHON_USER_SITE_PACKAGES
+        OUTPUT_VARIABLE _PYCSG_USER_SITE
         OUTPUT_STRIP_TRAILING_WHITESPACE
       )
+      set(PYCSG_INSTALL_DIR "${_PYCSG_USER_SITE}" CACHE PATH
+          "Directory where the pycsg Python module is installed")
+      set(PYTHON_USER_SITE_PACKAGES ${PYCSG_INSTALL_DIR})
 
       # Place the generated pycsg.py in the build root so the install path below
       # is predictable regardless of CMake version.
@@ -71,6 +75,9 @@ if(SWIG_FOUND)
       target_include_directories(pycsg PRIVATE include ${EIGEN3_INCLUDE_DIR})
       target_link_libraries(pycsg PRIVATE csg Python::Module Eigen3::Eigen)
       set_target_properties(pycsg PROPERTIES SWIG_USE_TARGET_INCLUDE_DIRECTORIES TRUE)
+      # Let the installed module find the installed libcsg.so without ldconfig
+      set_target_properties(pycsg PROPERTIES
+         INSTALL_RPATH "${CMAKE_INSTALL_FULL_LIBDIR}")
 
       # Install SWIG generated DSOs for Python integration
       install(TARGETS ${SWIG_MODULE_pycsg_REAL_NAME}
@@ -84,3 +91,17 @@ if(SWIG_FOUND)
 else()
    message(STATUS "SWIG not found — Python bindings (pycsg) will not be built")
 endif()
+
+
+## C++ install (library + headers). Declared last so that "make install" installs
+## the Python module first: if this step fails for lack of root, Python is
+## already installed.
+##
+# Install the shared library and public headers for use from C++
+# (to /usr/local by default; override with -DCMAKE_INSTALL_PREFIX=...)
+install(TARGETS csg
+   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES include/libcsg.h include/trimesh.h include/aabb.h
+   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
