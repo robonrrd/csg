@@ -963,7 +963,7 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
    // we'll have very few vertices in this function.
    //
    // Points 0,1,2 are the triangle's primal vertices; points 3.. are the new
-   // (intersection) points. 
+   // (intersection) points.
    const size_t num_initial_verts = 3 + new_vert_indices.size();
    UnionFind uf(num_initial_verts);
 
@@ -1456,10 +1456,15 @@ TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
          Eigen::Vector3i face;
          for (uint32_t jj=0; jj<3; ++jj)
          {
-            uint32_t idx = original_mesh.faces()[ii].m_v[jj];
+            // Key by the welded canonical index (the same key the cut faces
+            // below use), so vertices shared between cut and uncut faces
+            // are emitted once, and knife-local indices can't alias clay ones.
+            const uint32_t local_idx = original_mesh.faces()[ii].m_v[jj];
+            const uint32_t idx =
+               vertex_map[canonicalVertexIndex(IPointRef(which_surface, local_idx))];
             if (used_map[idx] == UINT32_MAX)
             {
-               vertices.push_back( original_mesh.vertices()[idx] );
+               vertices.push_back( original_mesh.vertices()[local_idx] );
                face[jj] = count;
                used_map[idx] = count;
                count++;
