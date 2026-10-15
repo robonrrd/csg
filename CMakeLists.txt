@@ -24,14 +24,7 @@ link_directories( build lib )
 include_directories( include ${EIGEN3_INCLUDE_DIR} )
 
 
-# CSG_TEST
-add_executable(csg_test src/csg_test.cpp)
-target_link_libraries(csg_test ${PROJECT_LINK_LIBS} Eigen3::Eigen)
-# AABB_TEST
-add_executable(aabb_test src/aabb_test.cpp)
-target_link_libraries(aabb_test ${PROJECT_LINK_LIBS} Eigen3::Eigen)
-
-
+# The tests (and the small command-line tools for trying out a cut) are in tests/
 enable_testing()
 add_subdirectory(tests)
 
