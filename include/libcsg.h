@@ -63,8 +63,16 @@ class IPoint
 class IFace
 {
 public:
+   IFace() : orig(0) { cutter[0] = cutter[1] = cutter[2] = -1; }
+
    IPointRef v[3];
    uint32_t  orig; // original face
+
+   // If the edge from v[k] to v[(k+1)%3] lies along the curve where this face
+   // was cut, cutter[k] is the index of the face (on the other mesh) that made
+   // the cut.  Otherwise it is -1.  These edges are the borders between the
+   // 'above' and 'below' regions of a mesh.
+   int32_t cutter[3];
 };
 
 enum TriTriIntersectionType
@@ -125,10 +133,19 @@ class CSGEngine
 
    bool degenerateTriangle(const IFace& triangle) const;
 
+   // Cuts the face 'fidx' of 'mesh' along the intersection segments given by
+   // 'new_vert_indices' (pairs of indices into m_newPoints).  May add points to
+   // m_newPointPositions, where segments cross each other.
    std::vector<IFace> retriangulate(const TriMesh& mesh, IParent which_mesh, uint32_t fidx,
-                                    const std::vector<uint32_t>& new_vert_indices) const;
+                                    const std::vector<uint32_t>& new_vert_indices);
 
-   std::vector<char> classifyCutFaces(const std::vector<IFace>& in_faces, IParent which);
+   // Welds coincident points of the clay, knife and new points into
+   // m_vertexMap.  Must be called after all points have been created.
+   void buildVertexMap();
+
+   // Which side of 'surface' a point is on (+1 above, -1 below, 0 unknown),
+   // judged from the surface's closest triangle
+   int sideOfSurface(const Eigen::Vector3d& point, const TriMesh& surface) const;
 
    void classifyFaces(IParent which_surface, const std::vector<IFace>& new_faces,
                       const std::vector<bool>& is_face_cut,
@@ -163,9 +180,9 @@ class CSGEngine
    // The positions of the genuinely new points created by triangle intersections
    std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> m_newPointPositions;
 
-   // For each entry of m_newPointPositions, the (clay face, knife face) pair whose
-   // intersection created it.  Indexed into like m_newPointPositions
-   std::vector<std::pair<uint32_t, uint32_t>> m_newPointFaces;
+   // Maps a canonical vertex index (see canonicalVertexIndex) to the canonical
+   // index of the representative of all coincident vertices
+   std::vector<uint32_t> m_vertexMap;
 };
 
 

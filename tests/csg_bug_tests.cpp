@@ -98,6 +98,7 @@ static void runKnownBug(const char* name, const char* bug, std::function<void()>
 
 // ===========================================================================
 // BUG-9: cut faces with no new vertex are dropped from both outputs
+// (fixed: faces are now classified by flood-filling regions bounded by the cuts)
 //
 // The knife plane x+y+z=1 passes exactly through the cube vertices (1,0,0),
 // (0,1,0) and (0,0,1).  The three cube faces that only touch the plane at one
@@ -161,11 +162,48 @@ static void test_bug10_cutting_face_lookup()
 }
 
 // ===========================================================================
+// Mesh components that the knife never touches must not vanish
+//
+// Three unit boxes stacked in z (z in [-3,-2], [0,1] and [2,3]); the knife is
+// the plane z=0.5 covering only the middle box.  The middle box is split in
+// half; the top box lies above the knife (so belongs in A), the bottom box
+// below it (B).  Nothing cuts those two, so the fill cannot reach them from a
+// cut and they have to be classified against the knife directly.
+// ===========================================================================
+
+static void test_untouched_components_are_kept()
+{
+   std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> verts;
+   std::vector<Eigen::Vector3i, Eigen::aligned_allocator<Eigen::Vector3i>> faces;
+   for (double z : {-3.0, 0.0, 2.0})
+   {
+      const CSG::TriMesh box =
+         meshcheck::makeBox(Eigen::Vector3d(0, 0, z), Eigen::Vector3d(1, 1, z + 1));
+      const int base = static_cast<int>(verts.size());
+      verts.insert(verts.end(), box.vertices().begin(), box.vertices().end());
+      for (const auto& f : box.faces())
+         faces.push_back(Eigen::Vector3i(base + f.m_v[0], base + f.m_v[1], base + f.m_v[2]));
+   }
+   const CSG::TriMesh clay(verts, faces);
+   const CSG::TriMesh knife = meshcheck::makeTriangles({
+      {-1, -1, 0.5,   2, -1, 0.5,   2, 2, 0.5},
+      {-1, -1, 0.5,   2, 2, 0.5,   -1, 2, 0.5}});
+
+   CSG::TriMesh A, B;
+   construct(clay, knife, false, A, B);
+
+   // top box (6) + the upper half of the middle box (top 1 + sides 2)
+   CHECK_NEAR(analyze(A).area, 9.0, 1e-9);
+   CHECK_NEAR(analyze(B).area, 9.0, 1e-9);
+}
+
+// ===========================================================================
 
 int main()
 {
    run("bug10_cutting_face_lookup", test_bug10_cutting_face_lookup);
-   runKnownBug("bug09_touching_faces_are_kept", "BUG-9", test_bug09_touching_faces_are_kept);
+   run("bug09_touching_faces_are_kept", test_bug09_touching_faces_are_kept);
+   run("untouched_components_are_kept", test_untouched_components_are_kept);
 
    const int total = g_pass + g_fail + g_xfail + g_xpass;
    std::cout << "\n--- " << total << " tests: " << g_pass << " passed, " << g_xfail

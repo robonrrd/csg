@@ -704,7 +704,6 @@ std::vector<IPoint> CSGEngine::convertIntersectionToIpoints(const TriangleInters
       {
          // A new point
          m_newPointPositions.push_back(ix.p[jj]);
-         m_newPointFaces.push_back(std::make_pair(cidx, kidx));
          pts[jj].ref.parent = kNew;
          pts[jj].ref.idx = m_newPointPositions.size()-1;
       }
@@ -729,6 +728,15 @@ uint32_t CSGEngine::canonicalVertexIndex(const IPointRef& ref) const
       return idx;
 
    return idx + m_knife.vertices().size();
+}
+
+
+// A key identifying the undirected edge between two vertex indices
+inline uint64_t edgeKey(uint32_t a, uint32_t b)
+{
+   if (a > b)
+      std::swap(a, b);
+   return (static_cast<uint64_t>(a) << 32) | b;
 }
 
 
@@ -886,7 +894,7 @@ bool CSGEngine::degenerateTriangle(const IFace& face) const
 }
 
 std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_mesh, uint32_t fidx,
-                                            const std::vector<uint32_t>& new_vert_indices) const
+                                            const std::vector<uint32_t>& new_vert_indices)
 {
    const uint32_t numPoints = 3 + new_vert_indices.size();
    const uint32_t numSegments = new_vert_indices.size() / 2;
@@ -947,41 +955,14 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
    std::cout << std::endl;
 #endif
 
-   struct triangulateio in;
-   initializeTriangulateio(in);
-
-   in.numberofpoints = numPoints;
-   in.pointlist = (double*)malloc(numPoints * 2 * sizeof(double));
-
-   for (uint32_t ii = 0; ii < numPoints; ++ii)
-   {
-      in.pointlist[2 * ii] = pts_2d[ii][0];
-      in.pointlist[2 * ii + 1] = pts_2d[ii][1];
-   }
-
-   in.numberofsegments = numSegments;
-   in.segmentlist = (int*)malloc(numSegments * 2 * sizeof(int));
-   for (uint32_t ii = 0; ii < numSegments; ++ii)
-   {
-      in.segmentlist[2 * ii] = 3 + 2 * ii;
-      in.segmentlist[2 * ii + 1] = 4 + 2 * ii;
-   }
-
-   struct triangulateio out;
-   initializeTriangulateio(out);
-
-   char flags[] = "Qcz";  // pcze
-   triangulate(flags, &in, &out, 0);
-
-   // triangulate is extremely precise and may create vertices which are the
-   // same for any reasonable geometric purpose. Here, we weld all vertices that
-   // are closer than some epsilon. We do this in a brute-force way because
-   // we'll have very few vertices in this function.
-   //
+   // Weld points that are the same so that triangle doesn't see near-duplicates.
    // Points 0,1,2 are the triangle's primal vertices; points 3.. are the new
    // (intersection) points.
-   const size_t num_initial_verts = 3 + new_vert_indices.size();
-   UnionFind uf(num_initial_verts);
+
+   // Union-find (with the lowest index as the representative, so primal
+   // vertices win) makes chains of nearly-coincident points all resolve to one
+   // point.
+   UnionFind uf(numPoints);
 
    for (size_t ii=0; ii<new_vert_indices.size(); ++ii)
    {
@@ -1002,45 +983,119 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
       }
    }
 
-   std::vector<uint32_t> vertex_mapping(num_initial_verts);
-   for (size_t ii=0; ii<num_initial_verts; ++ii)
+   // triangle is only given the representatives
+   std::vector<int> compact_index(numPoints, -1);
+   std::vector<uint32_t> compact_to_local;
+   for (uint32_t ii = 0; ii < numPoints; ++ii)
    {
-      vertex_mapping[ii] = uf.find(ii);
+      if (uf.find(ii) == ii)
+      {
+         compact_index[ii] = compact_to_local.size();
+         compact_to_local.push_back(ii);
+      }
+   }
+   const uint32_t numCompact = compact_to_local.size();
+
+   struct triangulateio in;
+   initializeTriangulateio(in);
+
+   in.numberofpoints = numCompact;
+   in.pointlist = (double*)malloc(numCompact * 2 * sizeof(double));
+   for (uint32_t ii = 0; ii < numCompact; ++ii)
+   {
+      in.pointlist[2 * ii] = pts_2d[compact_to_local[ii]][0];
+      in.pointlist[2 * ii + 1] = pts_2d[compact_to_local[ii]][1];
    }
 
-#ifdef DEBUG
-   std::cout << "Vertex mapping:"  << std::endl;
-   for (size_t ii=0; ii<num_initial_verts; ++ii)
+   // The constraint segments are the intersection lines along which the face is
+   // cut. Each is marked with (2 + the index of the face on the other mesh that
+   // made the cut), so that the sub-faces on either side of it can be told
+   // apart later. (Triangle uses markers 0 and 1 for 'not a segment' and 'edge
+   // of the triangle').
+   std::vector<int> segments;
+   std::vector<int> segment_markers;
+   for (uint32_t ii = 0; ii < numSegments; ++ii)
    {
-      std::cout << "  " << ii << " -> " << vertex_mapping[ii] << std::endl;
-   }
-#endif
+      const uint32_t a = uf.find(3 + 2 * ii);
+      const uint32_t b = uf.find(4 + 2 * ii);
+      if (a == b)
+         continue;  // zero length: the faces only touch at a point
 
-   // Convert the local triangle vertex indices into global IPointRefs
+      const IPoint& ip = m_newPoints[new_vert_indices[2 * ii]];
+      segments.push_back(compact_index[a]);
+      segments.push_back(compact_index[b]);
+      segment_markers.push_back(2 + ((which_mesh == kClay) ? ip.kidx : ip.cidx));
+   }
+
+   in.numberofsegments = segment_markers.size();
+   in.segmentlist = (int*)malloc((segments.size() + 1) * sizeof(int));
+   in.segmentmarkerlist = (int*)malloc((segment_markers.size() + 1) * sizeof(int));
+   std::copy(segments.begin(), segments.end(), in.segmentlist);
+   std::copy(segment_markers.begin(), segment_markers.end(), in.segmentmarkerlist);
+
+   struct triangulateio out;
+   initializeTriangulateio(out);
+
+   // p: use the input segments
+   // c: keep the convex hull (the original triangle)
+   // e: output edges, with the markers of the segments they lie on
+   // z: zero-indexed
+   char flags[] = "pQcze";
+   triangulate(flags, &in, &out, 0);
+
+   // Resolve the output points to references. The first numCompact are our
+   // input points; any others were created by 'triangle' where two segments
+   // cross, and are new points.
+   std::vector<IPointRef> out_refs(out.numberofpoints);
+   for (uint32_t ii = 0; ii < static_cast<uint32_t>(out.numberofpoints); ++ii)
+   {
+      if (ii < numCompact)
+      {
+         const uint32_t local = compact_to_local[ii];
+         if (local < 3)
+            out_refs[ii] = IPointRef(which_mesh, mesh.faces()[fidx].m_v[local]);
+         else
+            out_refs[ii] = m_newPoints[new_vert_indices[local - 3]].ref;
+      }
+      else
+      {
+         const Eigen::Vector3d flat(out.pointlist[2 * ii], out.pointlist[2 * ii + 1],
+                                    pts_2d[0][2]);
+         m_newPointPositions.push_back(rot.transpose() * flat);
+         out_refs[ii] = IPointRef(kNew, m_newPointPositions.size() - 1);
+      }
+   }
+
+   // Which output edges lie along a cut
+   std::unordered_map<uint64_t, int32_t> edge_cutter;
+   for (int ii = 0; ii < out.numberofedges; ++ii)
+   {
+      if (out.edgemarkerlist[ii] >= 2)
+         edge_cutter[edgeKey(out.edgelist[2 * ii], out.edgelist[2 * ii + 1])] =
+            out.edgemarkerlist[ii] - 2;
+   }
+
    std::vector<IFace> new_faces;
-   for (uint32_t ii = 0; ii < out.numberoftriangles; ii++)
+   for (int ii = 0; ii < out.numberoftriangles; ii++)
    {
       IFace new_face;
       new_face.orig = fidx;
-      for (uint32_t jj = 0; jj < 3; jj++)
+      for (int jj = 0; jj < 3; jj++)
       {
-         uint32_t idx = vertex_mapping[out.trianglelist[ii * 3 + jj]];
-         if (idx < 3) // original vertices
-         {
-            new_face.v[jj].parent = which_mesh;
-            new_face.v[jj].idx = mesh.faces()[fidx].m_v[idx];
-         }
-         else
-         {
-            new_face.v[jj] = m_newPoints[new_vert_indices[idx-3]].ref;
-         }
+         const int a = out.trianglelist[ii * 3 + jj];
+         const int b = out.trianglelist[ii * 3 + (jj + 1) % 3];
+         new_face.v[jj] = out_refs[a];
+
+         auto itr = edge_cutter.find(edgeKey(a, b));
+         if (itr != edge_cutter.end())
+            new_face.cutter[jj] = itr->second;
       }
 
       if (!degenerateTriangle(new_face))
       {
          new_faces.push_back(new_face);
       }
-#if DEBUG
+#ifdef DEBUG
       else
       {
          std::cout << "Skipping face: " << new_face.v[0].idx << "," << new_face.v[1].idx
@@ -1051,142 +1106,151 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
 
    free(in.pointlist);
    free(in.segmentlist);
+   free(in.segmentmarkerlist);
    if (out.pointlist)         trifree((int*)out.pointlist);
    if (out.pointmarkerlist)   trifree(out.pointmarkerlist);
    if (out.trianglelist)      trifree(out.trianglelist);
    if (out.segmentlist)       trifree(out.segmentlist);
    if (out.segmentmarkerlist) trifree(out.segmentmarkerlist);
+   if (out.edgelist)          trifree(out.edgelist);
+   if (out.edgemarkerlist)    trifree(out.edgemarkerlist);
 
    return new_faces;
-
 }
 
 
-std::vector<char> CSGEngine::classifyCutFaces(const std::vector<IFace>& in_faces,
-                                              IParent which_surface)
+// Finds the closest point to 'p' on the triangle (a, b, c)
+// (From Ericson, "Real-Time Collision Detection")
+static Eigen::Vector3d closestPointOnTriangle(const Eigen::Vector3d& p, const Eigen::Vector3d& a,
+                                              const Eigen::Vector3d& b, const Eigen::Vector3d& c)
 {
-   // status:
-   // -1 - below
-   //  0 - unknown
-   //  1 - above
-   const size_t num_faces = in_faces.size();
-   std::vector<char> status(num_faces, 0);
+   const Eigen::Vector3d ab = b - a;
+   const Eigen::Vector3d ac = c - a;
+   const Eigen::Vector3d ap = p - a;
+   const double d1 = ab.dot(ap);
+   const double d2 = ac.dot(ap);
+   if (d1 <= 0.0 && d2 <= 0.0)
+      return a;  // vertex a
 
-   for (size_t fidx = 0; fidx < num_faces; ++fidx)
+   const Eigen::Vector3d bp = p - b;
+   const double d3 = ab.dot(bp);
+   const double d4 = ac.dot(bp);
+   if (d3 >= 0.0 && d4 <= d3)
+      return b;  // vertex b
+
+   const double vc = d1 * d4 - d3 * d2;
+   if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0)
+      return a + (d1 / (d1 - d3)) * ab;  // edge ab
+
+   const Eigen::Vector3d cp = p - c;
+   const double d5 = ab.dot(cp);
+   const double d6 = ac.dot(cp);
+   if (d6 >= 0.0 && d5 <= d6)
+      return c;  // vertex c
+
+   const double vb = d5 * d2 - d1 * d6;
+   if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0)
+      return a + (d2 / (d2 - d6)) * ac;  // edge ac
+
+   const double va = d3 * d6 - d5 * d4;
+   if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0)
+      return b + ((d4 - d3) / ((d4 - d3) + (d5 - d6))) * (c - b);  // edge bc
+
+   const double denom = 1.0 / (va + vb + vc);
+   return a + ab * (vb * denom) + ac * (vc * denom);  // inside the face
+}
+
+
+void CSGEngine::buildVertexMap()
+{
+   const size_t num_clay_points = m_clay.vertices().size();
+   const size_t num_knife_points = m_knife.vertices().size();
+   const size_t num_new_points = m_newPointPositions.size();
+   const size_t num_total_points = num_clay_points + num_knife_points + num_new_points;
+   const double radius = 1e-06; // TODO: express in ULP
+
+   // We use union-find (rather than mapping each new point to a single arbitrary
+   // "first" AABB match) so that clusters of 3+ mutually-close points all resolve
+   // to one canonical vertex instead of splitting across two or more
+   // nearly-coincident vertices. Union-by-smallest-index means original mesh
+   // vertices (which have the lowest indices) are preferred as the representative.
+   //
+   // Points are numbered as in canonicalVertexIndex().
+   AABBTree tree(0.05, num_total_points);
+   UnionFind uf(num_total_points);
+
+   for (uint32_t ii=0; ii<num_clay_points; ++ii)
+      tree.addSphere(ii, m_clay.vertices()[ii], radius);
+
+   for (uint32_t ii=0; ii<num_knife_points; ++ii)
+      tree.addSphere(ii+num_clay_points, m_knife.vertices()[ii], radius);
+
+   for (uint32_t ii=0; ii<num_new_points; ++ii)
+      tree.addSphere(ii+num_clay_points+num_knife_points, m_newPointPositions[ii], radius);
+
+   // Query the tree with every new point, to detect and union duplicates
+   for (uint32_t ii=0; ii<num_new_points; ++ii)
    {
-      const IFace& ff = in_faces[fidx];
+      const uint32_t idx = ii+num_clay_points+num_knife_points;
+      for (uint32_t dupe : tree.query(idx))
+         uf.unite(idx, dupe);
+   }
 
-      // Find a face on the opposite surface (the one that cut this one) to
-      // compare against for above/belowness
-      IPointRef testFace; // repurposing this structure to track a face
-      for (size_t ii=0; ii<3; ++ii)
+   // Clay and knife vertices at the same place (e.g. a clay vertex lying on a knife
+   // vertex, where the point is stored only once as a clay vertex) are the same vertex
+   for (uint32_t ii=0; ii<num_clay_points; ++ii)
+   {
+      for (uint32_t dupe : tree.query(ii))
       {
-         if (ff.v[ii].parent == kNew)
-         {
-            // For a kNew reference 'idx' indexes m_newPointPositions (not
-            // m_newPoints, which also holds points that are existing vertices),
-            // so the creating faces are looked up in the parallel array.
-            const std::pair<uint32_t, uint32_t>& faces = m_newPointFaces[ff.v[ii].idx];
-            if (which_surface == kClay)
-            {
-               testFace.parent = kKnife;
-               testFace.idx = faces.second;
-            }
-            else
-            {
-               testFace.parent = kClay;
-               testFace.idx = faces.first;
-            }
-         }
-      }
-
-      // No kNew vertex found: this sub-face touches no intersection point, so
-      // we have no reliable reference to classify it here.  Leave status at 0
-      // and let the flood-fill in classifyFaces() propagate the correct label.
-      if (testFace.parent == kNone)
-         continue;
-
-      // TODO: precompute or lazily compute face normals
-      Eigen::Vector3d normal;
-      Eigen::Vector3d center;
-      if (testFace.parent == kClay)
-      {
-         normal = m_clay.faceNormal(testFace.idx);
-         center = centroid(m_clay, testFace.idx);
-      }
-      else
-      {
-         normal = m_knife.faceNormal(testFace.idx);
-         center = centroid(m_knife, testFace.idx);
-      }
-
-      int32_t vote_above = 0;
-      int32_t vote_below = 0;
-      double height_above = 0;
-      double height_below = 0;
-      // Test each vertex
-      Eigen::Vector3d face_center(0,0,0);
-      for (size_t ii=0; ii<3; ++ii)
-      {
-         const Eigen::Vector3d vpos = ipointPos(ff.v[ii]);
-         face_center += vpos; // accumulate the face center for use later
-
-         if (ff.v[ii].parent != kNew) // new points are on the border, so can't be tested
-         {
-            const double nn = (vpos - center).dot(normal);
-            if (nn > 0)
-            {
-               vote_above++;
-               height_above += nn;
-            }
-            else if (nn < 0)
-            {
-               vote_below++;
-               height_below -= nn;
-            }
-         }
-      }
-
-      // Test triangle center
-      face_center /= 3.0;
-      const double nn = (face_center - center).dot(normal);
-      if (nn > 0)
-      {
-         vote_above++;
-         height_above += nn;
-      }
-      else if (nn < 0)
-      {
-         vote_below++;
-         height_below -= nn;
-      }
-
-      if (vote_above > vote_below)
-      {
-         status[fidx] = 1;
-      }
-      else if (vote_below > vote_above)
-      {
-         status[fidx] = -1;
-      }
-      else
-      {
-         if (height_above > height_below)
-         {
-            status[fidx] = 1;
-         }
-         else if (height_below > height_above)
-         {
-            status[fidx] = -1;
-         }
-         else
-         {
-            status[fidx] = 0;
-         }
+         if ((dupe >= num_clay_points) && (dupe < num_clay_points + num_knife_points))
+            uf.unite(ii, dupe);
       }
    }
 
-   return status;
+   m_vertexMap.resize(num_total_points);
+   for (uint32_t ii=0; ii<num_total_points; ++ii)
+      m_vertexMap[ii] = uf.find(ii);
+}
+
+
+int CSGEngine::sideOfSurface(const Eigen::Vector3d& point, const TriMesh& surface) const
+{
+   constexpr double ulp = std::numeric_limits<double>::epsilon() * POINT_ULP;
+
+   double best_dist2 = std::numeric_limits<double>::infinity();
+   double best_alignment = -1.0;
+   int best_side = 0;
+
+   for (uint32_t ff=0; ff<surface.faces().size(); ++ff)
+   {
+      const Eigen::Vector3d normal = surface.faceNormal(ff);
+      if (normal.squaredNorm() == 0.0)
+         continue;  // a degenerate face has no sides
+
+      const Triangle& face = surface.faces()[ff];
+      const Eigen::Vector3d closest = closestPointOnTriangle(
+         point, surface.vertices()[face.m_v[0]], surface.vertices()[face.m_v[1]],
+         surface.vertices()[face.m_v[2]]);
+
+      const Eigen::Vector3d offset = point - closest;
+      const double dist2 = offset.squaredNorm();
+      const double signed_dist = offset.dot(normal);
+      const double alignment = (dist2 > 0.0) ? std::fabs(signed_dist) / std::sqrt(dist2) : 0.0;
+
+      // The nearest triangle decides.  Where the closest point is on an edge or
+      // vertex several triangles tie, and we take the one the point is most
+      // directly in front of (or behind).
+      const bool nearer = dist2 < best_dist2 * (1.0 - ulp);
+      const bool tied = !nearer && (dist2 <= best_dist2 * (1.0 + ulp));
+      if (nearer || (tied && alignment > best_alignment))
+      {
+         best_dist2 = dist2;
+         best_alignment = alignment;
+         best_side = (signed_dist > 0.0) ? 1 : ((signed_dist < 0.0) ? -1 : 0);
+      }
+   }
+
+   return best_side;
 }
 
 
@@ -1195,198 +1259,157 @@ void CSGEngine::classifyFaces(IParent which_surface, const std::vector<IFace>& n
                               std::vector<char>& cut_face_status,
                               std::vector<char>& uncut_face_status)
 {
-   const TriMesh& original_mesh = ( (which_surface == kClay) ? m_clay : m_knife );
+   // Classify every face of a surface as above (1) or below (-1) the other
+   // surface, w.r.t. the normals of the other surface's faces.
+   //
+   // 1. Group the faces (the new faces that replaced the cut faces, and the
+   //    original faces that were not cut) into regions by flood-filling across
+   //    shared edges.  The fill is not allowed to cross the edges along which
+   //    the faces were cut: those are the borders between above and below.
+   // 2. Every new face that lies along a cut votes for its region's side, by
+   //    which side of the cutting face's plane it is on.
+   // 3. A region that no cut borders, or with no clear majority, is tested
+   //    against the other surface directly.
+   const TriMesh& original_mesh = getMesh(which_surface);
+   const TriMesh& cutter_mesh = otherMesh(which_surface);
 
-   // Classify cut (new) faces into 'above' and 'below' sets, depending on if
-   // they are above or below the faces that cut them (with respect to that
-   // face's normal)
-   const size_t numNewFaces = new_faces.size();
-   cut_face_status = classifyCutFaces(new_faces, which_surface);
+   const size_t num_new = new_faces.size();
+   const size_t num_orig = original_mesh.faces().size();
+   const size_t num_nodes = num_new + num_orig;  // new faces first, then original faces
 
-   // Flood-fill uncut faces:
-   //  1. create adjacency map between uncut faces and cut faces, using
-   //     shared 'original' (not new ones created by cutting) vertices
-   //  2. Select a classified cut face and begin filling
-   //  3. All unlabeled faces belong to the other set
+   auto vertexId = [this](const IPointRef& ref) { return m_vertexMap[canonicalVertexIndex(ref)]; };
 
-   // Map from a canonical vertex index to a canonical face index
-   std::unordered_map<uint32_t, std::vector<uint32_t>> adjacency_map;
+   // Map from (welded) edge to the faces on it; and the set of edges that are cuts
+   std::unordered_map<uint64_t, std::vector<uint32_t>> edge_faces;
+   std::unordered_set<uint64_t> cut_edges;
 
-   // First, add all the cut faces (these have been classified)
-   for (size_t ff=0; ff<numNewFaces; ++ff)
+   for (uint32_t ff=0; ff<num_new; ++ff)
    {
-      if (cut_face_status[ff] == 0)
+      for (uint32_t kk=0; kk<3; ++kk)
       {
-         //std::cout << "Skipping unclassified cut face " << ff << "!" << std::endl;
-         continue;
-      }
-
-      const auto& face = new_faces[ff];
-      for (size_t ii=0; ii<3; ++ii)
-      {
-         if (face.v[ii].parent == kNew) // skip new vertices
+         const uint32_t a = vertexId(new_faces[ff].v[kk]);
+         const uint32_t b = vertexId(new_faces[ff].v[(kk+1)%3]);
+         if (a == b)
             continue;
 
-         uint32_t idx = canonicalVertexIndex(face.v[ii]);
-         auto itr = adjacency_map.find(idx);
-         if (itr == adjacency_map.end())
-         {
-            adjacency_map.insert({idx, std::vector<uint32_t>(1,ff)});
-         }
-         else
-         {
-            itr->second.push_back(ff);
-         }
+         edge_faces[edgeKey(a, b)].push_back(ff);
+         if (new_faces[ff].cutter[kk] >= 0)
+            cut_edges.insert(edgeKey(a, b));
       }
    }
 
-   // Then add the uncut primal faces (original faces of the clay won't be
-   // included in any result, they have been replaced by the new faces above)
-   for(size_t ff=0; ff<original_mesh.faces().size(); ++ff)
+   // Original faces that were replaced by new faces are not nodes
+   for (uint32_t ff=0; ff<num_orig; ++ff)
    {
       if (is_face_cut[ff])
          continue;
 
-      const auto& face = original_mesh.faces()[ff];
-      uint32_t f_idx = ff + numNewFaces; // offset indexing
-      for (size_t vv=0; vv<3; ++vv)
+      const Triangle& face = original_mesh.faces()[ff];
+      for (uint32_t kk=0; kk<3; ++kk)
       {
-         const uint32_t idx = canonicalVertexIndex(IPointRef(which_surface, face.m_v[vv]));
-         auto itr = adjacency_map.find(idx);
-         if (itr == adjacency_map.end())
+         const uint32_t a = vertexId(IPointRef(which_surface, face.m_v[kk]));
+         const uint32_t b = vertexId(IPointRef(which_surface, face.m_v[(kk+1)%3]));
+         if (a == b)
+            continue;
+
+         edge_faces[edgeKey(a, b)].push_back(num_new + ff);
+      }
+   }
+
+   UnionFind regions(num_nodes);
+   for (const auto& edge : edge_faces)
+   {
+      if (cut_edges.count(edge.first))
+         continue;  // the border between regions
+
+      for (size_t ii=1; ii<edge.second.size(); ++ii)
+         regions.unite(edge.second[0], edge.second[ii]);
+   }
+
+   // Faces along a cut vote.  The face is above or below the cutting face's plane
+   // according to its vertex opposite the cut edge (that vertex can't be on the
+   // plane, or the face would be degenerate).
+   constexpr double ulp = std::numeric_limits<double>::epsilon() * POINT_ULP;
+   std::vector<int> votes(num_nodes, 0);
+   for (uint32_t ff=0; ff<num_new; ++ff)
+   {
+      for (uint32_t kk=0; kk<3; ++kk)
+      {
+         if (new_faces[ff].cutter[kk] < 0)
+            continue;
+
+         const uint32_t cutter = new_faces[ff].cutter[kk];
+         const Eigen::Vector3d normal = cutter_mesh.faceNormal(cutter);
+         const Eigen::Vector3d origin = cutter_mesh.vertices()[cutter_mesh.faces()[cutter].m_v[0]];
+         const Eigen::Vector3d apex = ipointPos(new_faces[ff].v[(kk+2)%3]);
+
+         const double height = (apex - origin).dot(normal);
+         const double scale = std::max(apex.cwiseAbs().maxCoeff(), origin.cwiseAbs().maxCoeff());
+         if (!(std::fabs(height) > ulp * scale))
+            continue;
+
+         votes[regions.find(ff)] += (height > 0.0) ? 1 : -1;
+      }
+   }
+
+   // Position of a point on a face (node), for testing it against the other surface
+   auto facePoint = [&](uint32_t node) -> Eigen::Vector3d
+   {
+      if (node < num_new)
+      {
+         return (ipointPos(new_faces[node].v[0]) + ipointPos(new_faces[node].v[1]) +
+                 ipointPos(new_faces[node].v[2])) / 3.0;
+      }
+      return centroid(original_mesh, node - num_new);
+   };
+
+   // The regions with no (or no clear) vote are classified by testing their faces
+   // against the other surface: the first face that is clearly on one side decides.
+   // (Not just any face: one might lie right in the other surface.)
+   std::unordered_map<uint32_t, std::vector<uint32_t>> unvoted_regions;
+   for (uint32_t node=0; node<num_nodes; ++node)
+   {
+      const bool active = (node < num_new) || !is_face_cut[node - num_new];
+      if (active && (votes[regions.find(node)] == 0))
+         unvoted_regions[regions.find(node)].push_back(node);
+   }
+
+   std::vector<char> region_status(num_nodes, 0);
+   for (const auto& region : unvoted_regions)
+   {
+      for (uint32_t node : region.second)
+      {
+         const int side = sideOfSurface(facePoint(node), cutter_mesh);
+         if (side != 0)
          {
-            adjacency_map.insert({idx, std::vector<uint32_t>(1,f_idx)});
-         }
-         else
-         {
-            itr->second.push_back(f_idx);
+            region_status[region.first] = side;
+            break;
          }
       }
    }
 
-#if DEBUG
+   auto statusOf = [&](uint32_t node) -> char
    {
-      // Print out adjacency map
-      std::cout << "Adjacency map for " << ( (which_surface == kClay) ? "clay" : "knife" )
-                << std::endl;
-      std::cout << " (canonical vertex index -> canonical face index)" << std::endl;
-      std::cout << " original face offset = " << numNewFaces << std::endl;
-      for (auto itr=adjacency_map.cbegin(); itr!=adjacency_map.cend(); ++itr)
-      {
-         std::cout << itr->first << " -> ";
-         for (size_t ii=0; ii<itr->second.size(); ++ii)
-         {
-            std::cout << itr->second[ii] << " ";
-         }
-         std::cout << std::endl;
-      }
-      std::cout << std::endl;
-   }
-#endif
+      const uint32_t root = regions.find(node);
+      if (votes[root] != 0)
+         return (votes[root] > 0) ? 1 : -1;
+      return region_status[root];
+   };
 
-   std::stack<uint32_t> faces_to_classify;
-   std::vector<bool> uncut_face_classified(original_mesh.faces().size(), false);
-   uncut_face_status.clear();
-   uncut_face_status.resize(original_mesh.faces().size(), 0);
-   for (size_t ff=0; ff<numNewFaces; ++ff)
+   cut_face_status.assign(num_new, 0);
+   for (uint32_t ff=0; ff<num_new; ++ff)
+      cut_face_status[ff] = statusOf(ff);
+
+   uncut_face_status.assign(num_orig, 0);
+   for (uint32_t ff=0; ff<num_orig; ++ff)
    {
-      // Find a successfully classified face
-      const char cur_status = cut_face_status[ff];
-      if (cur_status != 0)
-      {
-         //std::cout << "Seeding with cut face " << ff << std::endl;
-         for (size_t vv=0; vv<3; ++vv)
-         {
-            uint32_t idx = canonicalVertexIndex(new_faces[ff].v[vv]);
-            auto itr = adjacency_map.find(idx);
-            if (itr != adjacency_map.end())
-            {
-               for (auto itr2=itr->second.begin(); itr2!=itr->second.end(); ++itr2)
-               {
-                  if (*itr2 < numNewFaces)
-                  {
-                     // don't add cut (i.e. classified) faces
-                     continue;
-                  }
-                  if (uncut_face_classified[*itr2-numNewFaces])
-                  {
-                     // don't add already-classified uncut faces
-                     continue;
-                  }
-                  faces_to_classify.push(*itr2);
-                  //std::cout << " adding face " << *itr2 << " to stack" << std::endl;
-               }
-            }
-         }
-         //std::cout << std::endl;
-
-         // go through the stack until we're finished
-         while (!faces_to_classify.empty())
-         {
-            const uint32_t f_idx = faces_to_classify.top();
-            faces_to_classify.pop();
-
-            //std::cout << "Examining face " << f_idx << std::endl;
-            if (f_idx < numNewFaces)  // cut faces
-            {
-               if (cut_face_status[f_idx] != 0)
-               {
-                  // don't examine classified cut faces
-                  continue;
-               }
-               else
-               {
-                  cut_face_status[f_idx] = cur_status;
-                  //std::cout << "..newly classified cut face" << std::endl;
-               }
-            }
-            else // original (uncut) faces
-            {
-               const size_t original_index = f_idx - numNewFaces;
-               if (uncut_face_classified[original_index])
-               {
-                  // don't add already-classified uncut faces
-                  continue;
-               }
-
-               uncut_face_status[original_index] = cur_status;
-               uncut_face_classified[original_index] = true;
-               //std::cout << "..newly classified uncut face" << std::endl;
-
-               // add this face's unclassified neigbors to the stack
-               const auto& face = original_mesh.faces()[original_index];
-               for (size_t vv=0; vv<3; ++vv)
-               {
-                  IPointRef rpt(which_surface, face.m_v[vv]);
-                  const uint32_t idx = canonicalVertexIndex(rpt);
-                  //std::cout << "Looking for vertex " << idx << " in adj map" << std::endl;
-                  auto itr = adjacency_map.find(idx);
-                  if (itr == adjacency_map.end())
-                     continue;
-
-                  for (size_t kk=0; kk<itr->second.size(); ++kk)
-                  {
-                     const uint32_t cf = itr->second[kk];
-                     //std::cout << "..examining face " << cf << " from adj map" << std::endl;
-                     if (cf < numNewFaces)
-                     {
-                        continue; // skip cut faces
-                     }
-                     if (!uncut_face_classified[cf - numNewFaces])
-                     {
-                        //std::cout << "...adding attached face " << cf << std::endl;
-                        faces_to_classify.push(cf);
-                     }
-                  }
-               }
-            }
-         }
-      }
+      if (!is_face_cut[ff])
+         uncut_face_status[ff] = statusOf(num_new + ff);
    }
 
 #ifdef DEBUG
    std::cout << "classification results, uncut (original) faces: " << std::endl;
-   for (int ii=0; ii<uncut_face_status.size(); ++ii)
+   for (size_t ii=0; ii<uncut_face_status.size(); ++ii)
    {
       if (is_face_cut[ii])
          continue;
@@ -1402,61 +1425,8 @@ TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
                                 const std::vector<char>& uncut_face_status)
 {
    const TriMesh& original_mesh = getMesh(which_surface);
-   const TriMesh& opposite_mesh = otherMesh(which_surface);
-
-   const size_t num_original_points = original_mesh.vertices().size();
-   const size_t num_opposite_points = opposite_mesh.vertices().size();
-   const size_t num_new_points = m_newPointPositions.size();
-   const size_t num_total_points = num_original_points + num_opposite_points + num_new_points;
-   const double radius = 1e-06; // TODO: express in ULP
-
-   //
-   // Weld vertices using an AABB tree
-   //
-
-   // 'vertex_map' maps from the unwelded vertex numbering to the welded
-   // numbering. We use union-find (rather than mapping each new point to a
-   // single arbitrary "first" AABB match) so that clusters of 3+ mutually
-   // -close points all resolve to one canonical vertex instead of splitting
-   // across two or more nearly-coincident output vertices. Union-by-smallest
-   // -index means original mesh vertices (which have the lowest indices)
-   // are always preferred as the representative if a duplicate shows up,
-   // matching the original intent.
-   AABBTree tree(0.05, num_total_points);
-   UnionFind uf(num_total_points);
-
-   // Add original mesh vertices
-   for (uint32_t ii=0; ii<num_original_points; ++ii)
-   {
-      tree.addSphere(ii, original_mesh.vertices()[ii], radius);
-   }
-
-   // Add opposite mesh vertices
-   for (uint32_t ii=0; ii<num_opposite_points; ++ii)
-   {
-      const uint32_t idx = ii+num_original_points;
-      tree.addSphere(idx, opposite_mesh.vertices()[ii], radius);
-   }
-
-   // Add new points created by intersections
-   for (uint32_t ii=0; ii<num_new_points; ++ii)
-   {
-      const uint32_t idx = ii+num_original_points+num_opposite_points;
-      tree.addSphere(idx, m_newPointPositions[ii], radius);
-   }
-
-   // Query the tree with every new point, to detect and union duplicates
-   for (uint32_t ii=0; ii<num_new_points; ++ii)
-   {
-      const uint32_t idx = ii+num_original_points+num_opposite_points;
-      auto dupes = tree.query(idx);
-      for (uint32_t dupe : dupes)
-         uf.unite(idx, dupe);
-   }
-
-   std::vector<uint32_t> vertex_map(num_total_points);
-   for (uint32_t ii=0; ii<num_total_points; ++ii)
-      vertex_map[ii] = uf.find(ii);
+   const size_t num_total_points = m_vertexMap.size();
+   const std::vector<uint32_t>& vertex_map = m_vertexMap;
 
    std::vector<VECTOR3D> vertices;
    std::vector<VECTOR3I> faces;
@@ -1756,13 +1726,13 @@ void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriM
        }
    }
 
+   // All points now exist; weld the coincident ones
+   buildVertexMap();
+
    // Classify all faces as either above the triangle that intersected them (w.r.t. the
-   // intersecting triangle's face normal) or below.
-   // 1. Classify cut faces based on the face that cut them
-   // 2. Construct a vertex adjacency map of all faces that share a primal
-   //    vertex (i.e. verticies on the original mesh; not ones created by
-   //    the retriangulation process)
-   // 3. Do a breadth-first fill of all unclassified faces
+   // intersecting triangle's face normal) or below.  Faces are grouped into regions
+   // that are connected across shared edges, but not across the edges where the
+   // cuts were made, and each region is classified as a whole (see classifyFaces).
    //
    std::vector<char> clay_cut_face_status;
    std::vector<char> clay_uncut_face_status;
