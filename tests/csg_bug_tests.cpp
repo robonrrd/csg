@@ -198,12 +198,151 @@ static void test_untouched_components_are_kept()
 }
 
 // ===========================================================================
+// Helpers for the tests below
+// ===========================================================================
+
+// All the faces of A and of B in one mesh.  Without a cap the two halves of a cut
+// clay mesh are the clay surface split along the cut, so together they must form
+// exactly the closed clay surface again.
+static CSG::TriMesh combine(const CSG::TriMesh& A, const CSG::TriMesh& B)
+{
+   std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> verts;
+   std::vector<Eigen::Vector3i, Eigen::aligned_allocator<Eigen::Vector3i>> faces;
+   for (const CSG::TriMesh* m : {&A, &B})
+   {
+      const int base = static_cast<int>(verts.size());
+      verts.insert(verts.end(), m->vertices().begin(), m->vertices().end());
+      for (const auto& f : m->faces())
+         faces.push_back(Eigen::Vector3i(base + f.m_v[0], base + f.m_v[1], base + f.m_v[2]));
+   }
+   return CSG::TriMesh(verts, faces);
+}
+
+static bool hasVertexAt(const CSG::TriMesh& m, const Eigen::Vector3d& p)
+{
+   for (const auto& v : m.vertices())
+      if ((v - p).norm() < 1e-9)
+         return true;
+   return false;
+}
+
+// ===========================================================================
+// BUG-8: points that are a vertex of both meshes
+//
+// The knife is a single triangle whose three vertices are the cube vertices
+// (1,0,0), (0,1,0) and (0,0,1), so every point where it meets the cube is a vertex
+// of both meshes.  Such a point is stored as the clay's vertex, but the knife's
+// own faces refer to it by the knife's index, so classifying (and assembling)
+// the knife faces for the cap used to lose the connection between them.
+//
+// The triangle's normal is (1,1,1), so 'above' is the large piece (volume 5/6)
+// and 'below' is the corner (volume 1/6); flipping the triangle swaps them.  With
+// a cap both pieces must be closed, consistently oriented solids.
+// ===========================================================================
+
+static void checkCornerCut(const CSG::TriMesh& A, const CSG::TriMesh& B,
+                           double expected_volume_A, double expected_volume_B)
+{
+   const Report ra = analyze(A);
+   const Report rb = analyze(B);
+   CHECK(ra.closed());
+   CHECK(rb.closed());
+   CHECK_NEAR(ra.volume, expected_volume_A, 1e-9);
+   CHECK_NEAR(rb.volume, expected_volume_B, 1e-9);
+}
+
+static void test_bug08_knife_vertices_on_clay_vertices()
+{
+   const CSG::TriMesh clay =
+      meshcheck::makeBox(Eigen::Vector3d(0, 0, 0), Eigen::Vector3d(1, 1, 1));
+   const CSG::TriMesh knife = meshcheck::makeTriangles({{1, 0, 0,   0, 1, 0,   0, 0, 1}});
+   const CSG::TriMesh knife_flipped = meshcheck::makeTriangles({{1, 0, 0,   0, 0, 1,   0, 1, 0}});
+
+   CSG::TriMesh A, B;
+   construct(clay, knife, true, A, B);
+   checkCornerCut(A, B, 5.0 / 6.0, 1.0 / 6.0);
+
+   construct(clay, knife_flipped, true, A, B);
+   checkCornerCut(A, B, 1.0 / 6.0, 5.0 / 6.0);
+
+   // Without a cap the pieces are the clay surface, split.
+   construct(clay, knife, false, A, B);
+   const Report both = analyze(combine(A, B));
+   CHECK(both.closed());
+   CHECK_NEAR(both.area, 6.0, 1e-9);
+}
+
+// ===========================================================================
+// BUG-13: constraint segments that cross inside a face
+//
+// Two knife triangles, in the planes x=0.7 and y=0.3, cross each other along the
+// vertical line through (0.7, 0.3).  On the top face of the cube the two cuts are
+// therefore two segments that cross at (0.7, 0.3, 1), a point that no triangle
+// intersection produced: the triangulator has to create it.  (The point is
+// chosen away from the diagonal that splits the top face into two triangles; on
+// the diagonal the cuts would only meet at an edge of the triangulation.)  Its
+// extra vertex used to be indexed past the end of the vertex table, and the cuts
+// have to meet at it so that the faces fit together.
+// ===========================================================================
+
+static void test_bug13_crossing_cuts_in_a_face()
+{
+   const CSG::TriMesh clay =
+      meshcheck::makeBox(Eigen::Vector3d(0, 0, 0), Eigen::Vector3d(1, 1, 1));
+   const CSG::TriMesh knife = meshcheck::makeTriangles({
+      {0.7, -10, -5,   0.7, 10, -5,   0.7, 0, 10},    // x = 0.7
+      {-10, 0.3, -5,   10, 0.3, -5,   0, 0.3, 10}});  // y = 0.3
+   CSG::TriMesh A, B;
+   construct(clay, knife, false, A, B);
+
+   // The crossing point is a vertex of the output
+   CHECK(hasVertexAt(A, Eigen::Vector3d(0.7, 0.3, 1.0)) ||
+         hasVertexAt(B, Eigen::Vector3d(0.7, 0.3, 1.0)));
+
+   // Nothing is lost, and every crack is closed: A and B together are the
+   // whole, watertight, surface of the cube
+   const Report both = analyze(combine(A, B));
+   CHECK(both.closed());
+   CHECK_NEAR(both.area, 6.0, 1e-9);
+   CHECK_NEAR(both.volume, 1.0, 1e-9);
+}
+
+// ===========================================================================
+// BUG-14: a knife that only touches the clay at a point
+//
+// The apex of the knife triangle lies exactly on the interior of the cube's top
+// face and the rest of the triangle is above the cube, so the two triangles
+// intersect in a segment of zero length.  That is not a cut: all of the clay must
+// come out, intact, on one side of the knife.
+// ===========================================================================
+
+static void test_bug14_point_contact()
+{
+   const CSG::TriMesh clay =
+      meshcheck::makeBox(Eigen::Vector3d(0, 0, 0), Eigen::Vector3d(1, 1, 1));
+   const CSG::TriMesh knife = meshcheck::makeTriangles({{0.5, 0.5, 1,   -2, -2, 3,   3, -2, 3}});
+   CSG::TriMesh A, B;
+   construct(clay, knife, false, A, B);
+
+   const Report both = analyze(combine(A, B));
+   CHECK(both.closed());
+   CHECK_NEAR(both.area, 6.0, 1e-9);
+   CHECK_NEAR(both.volume, 1.0, 1e-9);
+
+   // ...all on one side of the knife (the clay is entirely below it)
+   CHECK(A.faces().empty() != B.faces().empty());
+}
+
+// ===========================================================================
 
 int main()
 {
    run("bug10_cutting_face_lookup", test_bug10_cutting_face_lookup);
    run("bug09_touching_faces_are_kept", test_bug09_touching_faces_are_kept);
    run("untouched_components_are_kept", test_untouched_components_are_kept);
+   run("bug08_knife_vertices_on_clay_vertices", test_bug08_knife_vertices_on_clay_vertices);
+   run("bug13_crossing_cuts_in_a_face", test_bug13_crossing_cuts_in_a_face);
+   run("bug14_point_contact", test_bug14_point_contact);
 
    const int total = g_pass + g_fail + g_xfail + g_xpass;
    std::cout << "\n--- " << total << " tests: " << g_pass << " passed, " << g_xfail
