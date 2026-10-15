@@ -143,6 +143,9 @@ class CSGEngine
    // m_vertexMap.  Must be called after all points have been created.
    void buildVertexMap();
 
+   // Sets m_weldTolerance from the size of the scene
+   void computeWeldTolerance();
+
    // Which side of 'surface' a point is on (+1 above, -1 below, 0 unknown),
    // judged from the surface's closest triangle
    int sideOfSurface(const Eigen::Vector3d& point, const TriMesh& surface) const;
@@ -183,6 +186,9 @@ class CSGEngine
    // Maps a canonical vertex index (see canonicalVertexIndex) to the canonical
    // index of the representative of all coincident vertices
    std::vector<uint32_t> m_vertexMap;
+
+   // Points closer together than this are the same point (see WELD_ULP in libcsg.cpp)
+   double m_weldTolerance = 0.0;
 };
 
 

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <assert.h>
 #include <cmath>
+#include <functional>
 #include <iomanip>      // std::setprecision
 #include <limits>
 #include <set>
@@ -29,6 +30,10 @@ namespace CSG
 // and problems. All magic numbers are expressed in terms of 'units in the last
 // place'
 constexpr uint32_t POINT_ULP = 2; // the threshhold for point equality
+
+// Two points of the scene that are this many units in the last place (of the largest
+// coordinate of the scene) apart, or less, are the same point and are welded.
+constexpr uint32_t WELD_ULP = 1024;
 
 
 //
@@ -84,6 +89,34 @@ class UnionFind
  private:
    std::vector<uint32_t> m_parent;
 };
+
+
+// Unites the points of 'points' that are within 'tolerance' of each other
+// (in every coordinate).  Only the points listed in 'queries' look for neighbours, and
+// they unite with a neighbour only if 'wanted(point, neighbour)'.
+static void uniteClosePoints(const std::vector<VECTOR3D>& points, double tolerance,
+                             const std::vector<uint32_t>& queries,
+                             const std::function<bool(uint32_t, uint32_t)>& wanted,
+                             UnionFind& uf)
+{
+   if (points.empty())
+      return;  // nothing to weld (and an AABBTree cannot be built from nothing)
+
+   // The tree finds the points whose boxes (of half the tolerance around each point)
+   // overlap; no margin is added to the boxes, and the distance is checked below
+   AABBTree tree(0.0, points.size());
+   for (uint32_t ii = 0; ii < points.size(); ++ii)
+      tree.addSphere(ii, points[ii], 0.5 * tolerance);
+
+   for (uint32_t ii : queries)
+   {
+      for (uint32_t jj : tree.query(ii))
+      {
+         if (wanted(ii, jj) && ((points[ii] - points[jj]).cwiseAbs().maxCoeff() <= tolerance))
+            uf.unite(ii, jj);
+      }
+   }
+}
 
 
 template <class T>
@@ -910,24 +943,20 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
 
    const Eigen::Vector3d n = (p1 - p0).cross(p2 - p0).normalized();  // normal
 
-   // Rotate the triangle into the XY plane.  When n is parallel (or anti-parallel)
-   // to UnitZ the cross product n×UnitZ is the zero vector, so we must special-case
-   // those two orientations to avoid a NaN rotation axis.
+   // A face without area has no plane to cut in
+   if (n.squaredNorm() == 0.0)
+      return std::vector<IFace>();
+
+   // Rotate the triangle into the XY plane: the frame of the face has its x axis along
+   // the face's first edge and its z axis along its normal, so that the normal goes to
+   // +Z (and the winding is kept).  Unlike a rotation about the axis n x Z, this has no
+   // special cases for a normal along Z.
+   const Eigen::Vector3d x_axis = (p1 - p0).normalized();
+   const Eigen::Vector3d y_axis = n.cross(x_axis).normalized();
    Eigen::Matrix3d rot;
-   if (n[2] > 1.0 - 1e-10)
-   {
-      rot = Eigen::Matrix3d::Identity();
-   }
-   else if (n[2] < -(1.0 - 1e-10))
-   {
-      rot = Eigen::AngleAxisd(M_PI, Eigen::Vector3d::UnitX()).matrix();
-   }
-   else
-   {
-      const Eigen::Vector3d axis = n.cross(Eigen::Vector3d::UnitZ()).normalized();
-      const double angle = acos(n[2]);
-      rot = Eigen::AngleAxisd(angle, axis).matrix();
-   }
+   rot.row(0) = x_axis;
+   rot.row(1) = y_axis;
+   rot.row(2) = n;
 
    std::vector<VECTOR3D> pts_2d(numPoints);
    pts_2d[0] = rot * p0;
@@ -1161,54 +1190,60 @@ static Eigen::Vector3d closestPointOnTriangle(const Eigen::Vector3d& p, const Ei
 }
 
 
+void CSGEngine::computeWeldTolerance()
+{
+   double scale = 0.0;
+   for (const TriMesh* mesh : {&m_clay, &m_knife})
+   {
+      for (const auto& v : mesh->vertices())
+      {
+         const double largest = v.cwiseAbs().maxCoeff();
+         if (std::isfinite(largest))
+            scale = std::max(scale, largest);
+      }
+   }
+   m_weldTolerance = WELD_ULP * std::numeric_limits<double>::epsilon() * scale;
+}
+
+
 void CSGEngine::buildVertexMap()
 {
-   const size_t num_clay_points = m_clay.vertices().size();
-   const size_t num_knife_points = m_knife.vertices().size();
-   const size_t num_new_points = m_newPointPositions.size();
-   const size_t num_total_points = num_clay_points + num_knife_points + num_new_points;
-   const double radius = 1e-06; // TODO: express in ULP
+   const uint32_t num_clay_points = m_clay.vertices().size();
+   const uint32_t num_knife_points = m_knife.vertices().size();
+   const uint32_t num_new_points = m_newPointPositions.size();
+   const uint32_t num_total_points = num_clay_points + num_knife_points + num_new_points;
+   const uint32_t first_new_point = num_clay_points + num_knife_points;
+
+   // All the points, numbered as in canonicalVertexIndex()
+   std::vector<VECTOR3D> points;
+   points.reserve(num_total_points);
+   points.insert(points.end(), m_clay.vertices().begin(), m_clay.vertices().end());
+   points.insert(points.end(), m_knife.vertices().begin(), m_knife.vertices().end());
+   points.insert(points.end(), m_newPointPositions.begin(), m_newPointPositions.end());
 
    // We use union-find (rather than mapping each new point to a single arbitrary
-   // "first" AABB match) so that clusters of 3+ mutually-close points all resolve
+   // "first" match) so that clusters of 3+ mutually-close points all resolve
    // to one canonical vertex instead of splitting across two or more
    // nearly-coincident vertices. Union-by-smallest-index means original mesh
    // vertices (which have the lowest indices) are preferred as the representative.
-   //
-   // Points are numbered as in canonicalVertexIndex().
-   AABBTree tree(0.05, num_total_points);
    UnionFind uf(num_total_points);
 
-   for (uint32_t ii=0; ii<num_clay_points; ++ii)
-      tree.addSphere(ii, m_clay.vertices()[ii], radius);
+   // Every new point is welded to whatever is at the same place.  Clay and knife
+   // vertices at the same place (e.g. a clay vertex lying on a knife vertex, where the
+   // point is stored only once as a clay vertex) are the same vertex too.
+   std::vector<uint32_t> queries;
+   for (uint32_t ii = first_new_point; ii < num_total_points; ++ii)
+      queries.push_back(ii);
+   for (uint32_t ii = 0; ii < num_clay_points; ++ii)
+      queries.push_back(ii);
 
-   for (uint32_t ii=0; ii<num_knife_points; ++ii)
-      tree.addSphere(ii+num_clay_points, m_knife.vertices()[ii], radius);
-
-   for (uint32_t ii=0; ii<num_new_points; ++ii)
-      tree.addSphere(ii+num_clay_points+num_knife_points, m_newPointPositions[ii], radius);
-
-   // Query the tree with every new point, to detect and union duplicates
-   for (uint32_t ii=0; ii<num_new_points; ++ii)
-   {
-      const uint32_t idx = ii+num_clay_points+num_knife_points;
-      for (uint32_t dupe : tree.query(idx))
-         uf.unite(idx, dupe);
-   }
-
-   // Clay and knife vertices at the same place (e.g. a clay vertex lying on a knife
-   // vertex, where the point is stored only once as a clay vertex) are the same vertex
-   for (uint32_t ii=0; ii<num_clay_points; ++ii)
-   {
-      for (uint32_t dupe : tree.query(ii))
-      {
-         if ((dupe >= num_clay_points) && (dupe < num_clay_points + num_knife_points))
-            uf.unite(ii, dupe);
-      }
-   }
+   auto wanted = [=](uint32_t from, uint32_t to) {
+      return (from >= first_new_point) || ((to >= num_clay_points) && (to < first_new_point));
+   };
+   uniteClosePoints(points, m_weldTolerance, queries, wanted, uf);
 
    m_vertexMap.resize(num_total_points);
-   for (uint32_t ii=0; ii<num_total_points; ++ii)
+   for (uint32_t ii = 0; ii < num_total_points; ++ii)
       m_vertexMap[ii] = uf.find(ii);
 }
 
@@ -1499,47 +1534,28 @@ TriMesh CSGEngine::assembleMesh(IParent which_surface, char side,
 TriMesh CSGEngine::mergeMeshes(const TriMesh& exterior, const TriMesh& cap)
 {
    //
-   // Weld vertices using an AABB tree
+   // Weld the vertices that are at the same place.  'vertex_map' maps from the
+   // unwelded vertex numbering to the welded numbering. Union-find guarantees
+   // clusters of 3+ mutually-close vertices all resolve to a single canonical vertex;
+   // union-by-smallest-index means exterior vertices (lower indices) are preferred as
+   // the representative.
    //
-   const size_t num_ext_vertices = exterior.vertices().size();
-   const size_t num_cap_vertices = cap.vertices().size();
-   const size_t num_total_vertices = num_ext_vertices + num_cap_vertices;
-   const double radius = 1e-06; // TODO: express in ULP
+   const uint32_t num_ext_vertices = exterior.vertices().size();
+   const uint32_t num_cap_vertices = cap.vertices().size();
+   const uint32_t num_total_vertices = num_ext_vertices + num_cap_vertices;
 
-   AABBTree tree(0.05, num_total_vertices);
+   std::vector<VECTOR3D> points;
+   points.reserve(num_total_vertices);
+   points.insert(points.end(), exterior.vertices().begin(), exterior.vertices().end());
+   points.insert(points.end(), cap.vertices().begin(), cap.vertices().end());
 
-   // Add exterior mesh vertices
-   for (size_t ii=0; ii<num_ext_vertices; ++ii)
-   {
-      tree.addSphere(ii, exterior.vertices()[ii], radius);
-   }
+   std::vector<uint32_t> queries(num_total_vertices);
+   for (uint32_t ii = 0; ii < num_total_vertices; ++ii)
+      queries[ii] = ii;
 
-   // Add cap mesh vertices
-   for (uint32_t ii=0; ii<num_cap_vertices; ++ii)
-   {
-      const uint32_t idx = ii+num_ext_vertices;
-      tree.addSphere(idx, cap.vertices()[ii], radius);
-   }
-
-   // Query the tree with every vertex to detect and union duplicates.
-   // 'vertex_map' maps from the unwelded vertex numbering to the welded
-   // numbering. Union-find guarantees clusters of 3+ mutually-close vertices
-   // all resolve to a single canonical vertex; union-by-smallest-index means
-   // exterior vertices (lower indices) are preferred as the representative.
    UnionFind uf(num_total_vertices);
-   for (size_t ii=0; ii<num_ext_vertices; ++ii)
-   {
-      auto dupes = tree.query(ii);
-      for (uint32_t dupe : dupes)
-         uf.unite(ii, dupe);
-   }
-   for (size_t ii=0; ii<num_cap_vertices; ++ii)
-   {
-      const uint32_t idx = ii+num_ext_vertices;
-      auto dupes = tree.query(idx);
-      for (uint32_t dupe : dupes)
-         uf.unite(idx, dupe);
-   }
+   uniteClosePoints(points, m_weldTolerance, queries,
+                    [](uint32_t, uint32_t) { return true; }, uf);
 
    std::vector<uint32_t> vertex_map(num_total_vertices);
    for (uint32_t ii=0; ii<num_total_vertices; ++ii)
@@ -1644,6 +1660,8 @@ TriMesh CSGEngine::mergeWithCap(const TriMesh& exterior, const TriMesh& cap,
 
 void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriMesh& out_B)
 {
+   computeWeldTolerance();
+
    // Create and intersect AABB trees
    std::unordered_set<std::pair<uint32_t, uint32_t>> ix = intersectAABBs(m_clay, m_knife);
 

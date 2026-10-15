@@ -1841,6 +1841,87 @@ static void test_bug49_triangle_does_not_loop()
 
 
 // ===========================================================================
+// BUG-58: the weld radius was an absolute 1e-6, and a face's rotation into 2D had
+// a threshold
+//
+// Points that are the same point are welded; the radius was 1e-6 whatever the size
+// of the scene (with a margin of 5% on top of it), so a scene smaller than that
+// collapsed into one point.  It is now a number of units in the last place of the
+// scene's coordinates.  (The same bug, for the other tolerances of the code, is
+// BUG-15.)  A cube of any size cut in half must give two closed halves.
+//
+// Likewise, a face whose normal was within 1e-10 of Z was projected into 2D as it
+// was, and one within a few 1e-6 of it with a rotation computed from acos().  A
+// cube turned by tiny angles, so that the faces that the knife cuts are nearly
+// perpendicular to Z, must give halves of half its volume (the knife goes through
+// the cube's centre, which divides a cube in two equal parts at any angle).
+// ===========================================================================
+
+static void test_bug58_weld_is_relative_to_the_scene_scale()
+{
+    for (double s : {1e-9, 1e-6, 1.0, 1e6})
+    {
+        const CSG::TriMesh clay = meshcheck::makeBox(Eigen::Vector3d::Zero(), Eigen::Vector3d::Constant(s));
+        const CSG::TriMesh knife = meshcheck::makeTriangles({
+            {-3 * s, -3 * s, 0.5 * s,   6 * s, -3 * s, 0.5 * s,   -3 * s, 6 * s, 0.5 * s}});
+        CSG::TriMesh A, B;
+        construct(clay, knife, true, A, B);
+
+        std::ostringstream where;
+        where << "box of size " << s << ": ";
+        for (const CSG::TriMesh* half : {&A, &B})
+        {
+            const Report r = analyze(*half, 1e-9 * s);
+            if (!r.closed())
+                throw std::runtime_error(where.str() + "a half is not a closed mesh");
+            if (std::fabs(r.volume / (s * s * s) - 0.5) > 1e-6)
+                throw std::runtime_error(where.str() + "a half does not have half the volume");
+        }
+    }
+}
+
+static void test_bug58_nearly_axis_aligned_faces_are_cut()
+{
+    const Eigen::Vector3d centre = Eigen::Vector3d::Constant(0.5);
+    const CSG::TriMesh unit = meshcheck::makeBox(Eigen::Vector3d::Zero(), Eigen::Vector3d::Ones());
+    // The knife: x = 0.5, facing +x, big enough to cover the cube in any orientation
+    const CSG::TriMesh knife = meshcheck::makeTriangles({
+        {0.5, -5, -5,   0.5, 5, -5,   0.5, 0, 8}});
+
+    for (double flip : {0.0, M_PI})   // a face's normal may be near +Z or near -Z
+    {
+        for (double tilt : {0.0, 1e-12, 1e-10, 1e-9, 1e-6, 1e-3})
+        {
+            const Eigen::Matrix3d rot =
+                (Eigen::AngleAxisd(flip, Eigen::Vector3d::UnitX()) *
+                 Eigen::AngleAxisd(tilt, Eigen::Vector3d(1, 2, 0).normalized())).matrix();
+            std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> v;
+            for (const auto& p : unit.vertices())
+                v.push_back(rot * (p - centre) + centre);
+            std::vector<Eigen::Vector3i, Eigen::aligned_allocator<Eigen::Vector3i>> f;
+            for (const auto& tri : unit.faces())
+                f.push_back(Eigen::Vector3i(tri.m_v[0], tri.m_v[1], tri.m_v[2]));
+            const CSG::TriMesh clay(v, f);
+
+            CSG::TriMesh A, B;
+            construct(clay, knife, true, A, B);
+
+            std::ostringstream where;
+            where << "cube turned by " << flip << " + " << tilt << ": ";
+            for (const CSG::TriMesh* half : {&A, &B})
+            {
+                const Report r = analyze(*half);
+                if (!r.closed())
+                    throw std::runtime_error(where.str() + "a half is not a closed mesh");
+                if (std::fabs(r.volume - 0.5) > 1e-9)
+                    throw std::runtime_error(where.str() + "a half does not have half the volume");
+            }
+        }
+    }
+}
+
+
+// ===========================================================================
 // Command-line tools
 // ===========================================================================
 
@@ -1938,6 +2019,8 @@ int main(int argc, char* argv[])
    run("bug53_knife_vertices_on_clay_vertices",  test_bug53_knife_vertices_on_clay_vertices);
    run("bug14_crossing_cuts_in_a_face",          test_bug14_crossing_cuts_in_a_face);
    run("bug54_point_contact",                    test_bug54_point_contact);
+   run("bug58_weld_is_relative_to_the_scene_scale",  test_bug58_weld_is_relative_to_the_scene_scale);
+   run("bug58_nearly_axis_aligned_faces_are_cut",    test_bug58_nearly_axis_aligned_faces_are_cut);
 
    // More bugs from the tracker: the fixed ones
    run("bug05_tetrahedron_faces_point_outwards",  test_bug05_tetrahedron_faces_point_outwards);
@@ -1955,11 +2038,11 @@ int main(int argc, char* argv[])
 
    // More bugs from the tracker: the ones not fixed here (crashes and hangs included)
    runKnownBug("bug15_scale_invariance", "BUG-15", test_bug15_scale_invariance);
-   runKnownBug("bug17_weld_does_not_reach_too_far", "BUG-17", test_bug17_weld_does_not_reach_too_far);
-   runKnownBug("bug18_knife_misses_clay", "BUG-18", test_bug18_knife_misses_clay);
+   run("bug17_weld_does_not_reach_too_far", test_bug17_weld_does_not_reach_too_far);
+   run("bug18_knife_misses_clay", test_bug18_knife_misses_clay);
    runKnownBug("bug19_nearly_coplanar_knife", "BUG-19", test_bug19_nearly_coplanar_knife, 2);
    runKnownBug("bug21_empty_aabb_tree", "BUG-21", test_bug21_empty_aabb_tree);
-   runKnownBug("bug21_knife_far_from_clay_does_not_crash", "BUG-21", test_bug21_knife_far_from_clay_does_not_crash);
+   run("bug21_knife_far_from_clay_does_not_crash", test_bug21_knife_far_from_clay_does_not_crash);
    runKnownBug("bug27_coplanar_knife_is_watertight", "BUG-27", test_bug27_coplanar_knife_is_watertight, 2);
    runKnownBug("bug27_coplanar_opposite_orientation", "BUG-27", test_bug27_coplanar_opposite_orientation);
    runKnownBug("bug28_engine_owns_its_meshes", "BUG-28", test_bug28_engine_owns_its_meshes, 2);
@@ -1978,7 +2061,7 @@ int main(int argc, char* argv[])
    runKnownBug("bug46_boundary_points_stay_inside_the_face", "BUG-46", test_bug46_boundary_points_stay_inside_the_face);
    runKnownBug("bug47_output_has_no_t_junctions", "BUG-47", test_bug47_output_has_no_t_junctions);
    runKnownBug("bug48_conforming_terminates", "BUG-48", test_bug48_conforming_terminates);
-   runKnownBug("bug49_triangle_does_not_loop", "BUG-49", test_bug49_triangle_does_not_loop);
+   runKnownBug("bug49_triangle_does_not_loop", "BUG-49", test_bug49_triangle_does_not_loop, 2);
 
    return summarize();
 }
