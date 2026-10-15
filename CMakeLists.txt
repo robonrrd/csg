@@ -78,6 +78,20 @@ if(SWIG_FOUND)
 
       install(FILES ${CMAKE_BINARY_DIR}/pycsg.py
         DESTINATION ${PYTHON_USER_SITE_PACKAGES})
+
+      # Tests that use the Python bindings.  They are run against the libraries built
+      # in this tree, not against any installed copy (see tests/CMakeLists.txt).
+      add_test(NAME pycsg_tests
+               COMMAND ${Python_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_pycsg.py)
+      # The Blender add-on, tested against stand-ins for Blender's Python modules
+      add_test(NAME blender_addon_tests
+               COMMAND ${Python_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tests/test_blender_addon.py)
+      # A short run of the fuzzer in tools/ (random cuts checked against an exact oracle)
+      add_test(NAME fuzz_fold_smoke
+               COMMAND ${Python_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/fuzz_fold.py --n 250)
+      set_tests_properties(pycsg_tests blender_addon_tests fuzz_fold_smoke PROPERTIES
+         ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1;PYTHONPATH=${CMAKE_BINARY_DIR};LD_LIBRARY_PATH=$<TARGET_FILE_DIR:csg>:$ENV{LD_LIBRARY_PATH}"
+         TIMEOUT 120)
    else()
       message(STATUS "Python development headers not found — Python bindings (pycsg) will not be built")
    endif()

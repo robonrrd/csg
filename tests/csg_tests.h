@@ -22,6 +22,14 @@
 
 #include <Eigen/Geometry>  // cross()
 
+#if defined(__unix__) || defined(__APPLE__)
+#include <signal.h>
+#include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#define CSG_TESTS_CAN_FORK 1
+#endif
+
 #include "libcsg.h"
 
 #ifndef DATA_DIR
@@ -100,22 +108,97 @@ inline void run(const char* name, std::function<void()> fn)
    }
 }
 
+// Runs fn in a child process, so that a crash, a hang or a call to exit() in the code
+// under test is a failure of that test rather than the end of the test program.
+// Returns "" if fn passed, else a description of how it failed.
+#ifdef CSG_TESTS_CAN_FORK
+inline std::string runInChild(const std::function<void()>& fn, unsigned timeout_seconds)
+{
+   int fds[2];
+   if (pipe(fds) != 0)
+      return "pipe() failed";
+
+   std::cout.flush();
+   std::cerr.flush();
+   const pid_t pid = fork();
+   if (pid < 0)
+      return "fork() failed";
+
+   if (pid == 0)
+   {
+      // The child: report a failed assertion through the pipe
+      close(fds[0]);
+      alarm(timeout_seconds);
+      int status = 0;
+      try {
+         fn();
+      } catch (const std::exception& e) {
+         const std::string message = e.what();
+         if (write(fds[1], message.data(), message.size()) < 0)
+            status = 2;
+         status = status ? status : 1;
+      } catch (...) {
+         status = 1;
+      }
+      std::cout.flush();
+      _exit(status);
+   }
+
+   close(fds[1]);
+   std::string message;
+   char buffer[256];
+   ssize_t n;
+   while ((n = read(fds[0], buffer, sizeof(buffer))) > 0)
+      message.append(buffer, n);
+   close(fds[0]);
+
+   int status = 0;
+   waitpid(pid, &status, 0);
+   if (WIFSIGNALED(status))
+   {
+      std::ostringstream os;
+      if (WTERMSIG(status) == SIGALRM)
+         os << "hung (gave up after " << timeout_seconds << " s)";
+      else
+         os << "crashed (signal " << WTERMSIG(status) << ", " << strsignal(WTERMSIG(status)) << ")";
+      return os.str();
+   }
+   if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+      return "";
+   if (!message.empty())
+      return message;
+
+   std::ostringstream os;
+   os << "the process exited with status " << WEXITSTATUS(status);
+   return os.str();
+}
+#endif
+
 // A test that documents a bug that is not fixed yet.  It must fail; if it passes
-// the bug has been fixed and the test should be registered with run().
-inline void runKnownBug(const char* name, const char* bug, std::function<void()> fn)
+// the bug has been fixed and the test should be registered with run().  The test
+// runs in a child process, because the bug may well be a crash or a hang.
+inline void runKnownBug(const char* name, const char* bug, std::function<void()> fn,
+                        unsigned timeout_seconds = 20)
 {
    if (!testSelected(name))
       return;
    std::cout << "[TEST] " << name << "  (known bug " << bug << ")" << std::endl;
-   try {
-      fn();
+#ifdef CSG_TESTS_CAN_FORK
+   const std::string failure = runInChild(fn, timeout_seconds);
+   if (failure.empty())
+   {
       ++g_xpass;
       std::cout << "       UNEXPECTED PASS: " << bug << " seems fixed; use run() instead"
                 << std::endl;
-   } catch (const std::exception& e) {
-      ++g_xfail;
-      std::cout << "       XFAIL (" << bug << "): " << e.what() << std::endl;
    }
+   else
+   {
+      ++g_xfail;
+      std::cout << "       XFAIL (" << bug << "): " << failure << std::endl;
+   }
+#else
+   std::cout << "       SKIPPED: needs fork()" << std::endl;
+#endif
 }
 
 // Prints the totals; returns the process exit code (0 when every test behaved as
@@ -223,7 +306,7 @@ struct Report
    size_t vertices = 0;
    size_t faces = 0;
    size_t duplicate_vertices = 0;  // vertices that coincide with an earlier vertex
-   size_t degenerate_faces = 0;    // repeated (welded) vertex or ~zero area
+   size_t degenerate_faces = 0;    // repeated (welded) vertex or area below tol^2
    size_t boundary_edges = 0;      // edges used by exactly one face (cracks / holes)
    size_t nonmanifold_edges = 0;   // edges used by more than two faces
    size_t inconsistent_edges = 0;  // edges traversed in the same direction twice
@@ -296,6 +379,14 @@ inline Report analyze(const CSG::TriMesh& mesh, double tol = 1e-6)
       if (rep[i] != i)
          ++r.duplicate_vertices;
 
+   // Volume relative to the centroid of the vertices: far from the origin the terms of
+   // the usual formula are huge and cancel, so it would lose all its precision
+   Eigen::Vector3d origin = Eigen::Vector3d::Zero();
+   for (const auto& v : verts)
+      origin += v;
+   if (!verts.empty())
+      origin /= static_cast<double>(verts.size());
+
    std::map<std::pair<uint32_t, uint32_t>, int> directed;
    for (const auto& f : faces)
    {
@@ -306,9 +397,9 @@ inline Report analyze(const CSG::TriMesh& mesh, double tol = 1e-6)
 
       const double area = triangleArea(p0, p1, p2);
       r.area += area;
-      r.volume += p0.dot(p1.cross(p2)) / 6.0;
+      r.volume += (p0 - origin).dot((p1 - origin).cross(p2 - origin)) / 6.0;
 
-      if (id[0] == id[1] || id[1] == id[2] || id[0] == id[2] || area < 1e-12)
+      if (id[0] == id[1] || id[1] == id[2] || id[0] == id[2] || area < tol * tol)
       {
          ++r.degenerate_faces;
          continue;  // a collapsed face contributes no meaningful edges
@@ -366,6 +457,40 @@ inline CSG::TriMesh makeBox(const Eigen::Vector3d& lo, const Eigen::Vector3d& hi
       3, 7, 6,  3, 6, 2,   // y = hi
       0, 4, 7,  0, 7, 3,   // x = lo
       1, 2, 6,  1, 6, 5};  // x = hi
+   return CSG::TriMesh(v, f);
+}
+
+// A UV sphere with outward-facing triangles: 'segments' around the z axis and 'rings'
+// from pole to pole (the poles are single vertices).
+inline CSG::TriMesh makeUVSphere(const Eigen::Vector3d& center, double radius, int segments, int rings)
+{
+   std::vector<double> v = {center[0], center[1], center[2] + radius};
+   for (int j = 1; j < rings; ++j)
+   {
+      const double theta = M_PI * j / rings;
+      for (int i = 0; i < segments; ++i)
+      {
+         const double phi = 2.0 * M_PI * i / segments;
+         v.push_back(center[0] + radius * std::sin(theta) * std::cos(phi));
+         v.push_back(center[1] + radius * std::sin(theta) * std::sin(phi));
+         v.push_back(center[2] + radius * std::cos(theta));
+      }
+   }
+   v.insert(v.end(), {center[0], center[1], center[2] - radius});
+
+   const unsigned int top = 0, bottom = static_cast<unsigned int>(v.size() / 3 - 1);
+   auto ring = [&](int j, int i) { return static_cast<unsigned int>(1 + (j - 1) * segments + (i % segments)); };
+   std::vector<unsigned int> f;
+   for (int i = 0; i < segments; ++i)
+      f.insert(f.end(), {top, ring(1, i), ring(1, i + 1)});
+   for (int j = 1; j < rings - 1; ++j)
+      for (int i = 0; i < segments; ++i)
+      {
+         const unsigned int a = ring(j, i), b = ring(j, i + 1), c = ring(j + 1, i), d = ring(j + 1, i + 1);
+         f.insert(f.end(), {a, d, b,  a, c, d});
+      }
+   for (int i = 0; i < segments; ++i)
+      f.insert(f.end(), {bottom, ring(rings - 1, i + 1), ring(rings - 1, i)});
    return CSG::TriMesh(v, f);
 }
 
