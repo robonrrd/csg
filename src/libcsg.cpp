@@ -35,6 +35,10 @@ constexpr uint32_t POINT_ULP = 2; // the threshhold for point equality
 // coordinate of the scene) apart, or less, are the same point and are welded.
 constexpr uint32_t WELD_ULP = 1024;
 
+// How close to a cut segment (in ULPs of the largest 2D coordinate of the face) a point must be
+// to be taken to lie on it, so that the segment is split there before Triangle sees it
+constexpr uint32_t NODING_ULP = 1024;
+
 
 //
 // Helper functions
@@ -926,6 +930,93 @@ bool CSGEngine::degenerateTriangle(const IFace& face) const
    return false;
 }
 
+// Splits the segments (pairs of indices into the 2D points 'xy') at every point that lies
+// on one, to within 'tol', strictly between its ends.  A cut point that should lie on
+// another cut (the end of one cut meeting another: a T-junction) lies on it only to
+// within rounding, because the points were computed in 3D and rotated into 2D; Triangle
+// is exact and sees such a point a hair to one side, and a segment that ends there as
+// crossing it, which can make it fail or crash (BUG-50).  After this every point on a
+// segment is one of its ends.  The points are not moved.  Each piece keeps the marker of
+// its segment, and a piece that duplicates one already present is dropped.
+void splitSegmentsAtPoints(const std::vector<double>& xy, double tol,
+                           std::vector<int>& segments, std::vector<int>& markers)
+{
+   const uint32_t num_points = xy.size() / 2;
+   const uint32_t num_segments = markers.size();
+   if (num_points == 0 || num_segments == 0)
+      return;
+
+   // The points sorted by x, so that those near a segment are found without
+   // looking at all of them
+   std::vector<uint32_t> order(num_points);
+   for (uint32_t ii = 0; ii < num_points; ++ii)
+      order[ii] = ii;
+   std::sort(order.begin(), order.end(),
+             [&](uint32_t l, uint32_t r) { return xy[2 * l] < xy[2 * r]; });
+   std::vector<double> sorted_x(num_points);
+   for (uint32_t ii = 0; ii < num_points; ++ii)
+      sorted_x[ii] = xy[2 * order[ii]];
+
+   std::vector<int> new_segments;
+   std::vector<int> new_markers;
+   std::unordered_set<uint64_t> seen;
+   auto emit = [&](uint32_t a, uint32_t b, int marker) {
+      if (a == b || !seen.insert(edgeKey(a, b)).second)
+         return;
+      new_segments.push_back(a);
+      new_segments.push_back(b);
+      new_markers.push_back(marker);
+   };
+
+   std::vector<std::pair<double, uint32_t>> on_segment;  // (t along the segment, point)
+   for (uint32_t ss = 0; ss < num_segments; ++ss)
+   {
+      const uint32_t a = segments[2 * ss];
+      const uint32_t b = segments[2 * ss + 1];
+      const double ax = xy[2 * a], ay = xy[2 * a + 1];
+      const double dx = xy[2 * b] - ax, dy = xy[2 * b + 1] - ay;
+      const double len2 = dx * dx + dy * dy;
+
+      on_segment.clear();
+      if (len2 > 0.0)
+      {
+         const double len = std::sqrt(len2);
+         const double x_lo = std::min(ax, ax + dx) - tol;
+         const double x_hi = std::max(ax, ax + dx) + tol;
+         const double y_lo = std::min(ay, ay + dy) - tol;
+         const double y_hi = std::max(ay, ay + dy) + tol;
+         auto first = std::lower_bound(sorted_x.begin(), sorted_x.end(), x_lo);
+         for (size_t ii = first - sorted_x.begin(); ii < num_points && sorted_x[ii] <= x_hi; ++ii)
+         {
+            const uint32_t k = order[ii];
+            if (k == a || k == b)
+               continue;
+            const double px = xy[2 * k] - ax, py = xy[2 * k + 1] - ay;
+            if (xy[2 * k + 1] < y_lo || xy[2 * k + 1] > y_hi)
+               continue;
+            const double t = (px * dx + py * dy) / len2;
+            if (t <= 0.0 || t >= 1.0)
+               continue;
+            if (std::fabs(dx * py - dy * px) / len <= tol)
+               on_segment.push_back({t, k});
+         }
+         std::sort(on_segment.begin(), on_segment.end());
+      }
+
+      uint32_t prev = a;
+      for (const auto& tk : on_segment)
+      {
+         emit(prev, tk.second, markers[ss]);
+         prev = tk.second;
+      }
+      emit(prev, b, markers[ss]);
+   }
+
+   segments.swap(new_segments);
+   markers.swap(new_markers);
+}
+
+
 std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_mesh, uint32_t fidx,
                                             const std::vector<uint32_t>& new_vert_indices)
 {
@@ -1054,6 +1145,19 @@ std::vector<IFace> CSGEngine::retriangulate(const TriMesh& mesh, IParent which_m
       segments.push_back(compact_index[a]);
       segments.push_back(compact_index[b]);
       segment_markers.push_back(2 + ((which_mesh == kClay) ? ip.kidx : ip.cidx));
+   }
+
+   // Triangle must not have to decide on which side of a segment a point is: split the
+   // segments at the points that lie on them (BUG-50).  The reach is a number of ULPs of
+   // the largest 2D coordinate; the errors come from the intersection arithmetic and
+   // the rotation.
+   {
+      double largest = 0.0;
+      for (uint32_t ii = 0; ii < 2 * numCompact; ++ii)
+         largest = std::max(largest, std::fabs(in.pointlist[ii]));
+      const std::vector<double> xy(in.pointlist, in.pointlist + 2 * numCompact);
+      splitSegmentsAtPoints(xy, NODING_ULP * std::numeric_limits<double>::epsilon() * largest,
+                            segments, segment_markers);
    }
 
    in.numberofsegments = segment_markers.size();

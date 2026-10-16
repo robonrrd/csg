@@ -1841,6 +1841,61 @@ static void test_bug49_triangle_does_not_loop()
 
 
 // ===========================================================================
+// BUG-50: a cut point that lies on another cut segment only to within rounding made
+// Triangle fail (exit, or a segfault in constrainededge())
+//
+// A soup of 18 clay triangles and 33 knife triangles (tools/fuzz_soup.py --nice --tris 40,
+// seed 91, trial 14).  The cut segments are split at the points that lie on them before
+// Triangle sees them.  Without the cap the two outputs together must have the clay's area.
+// ===========================================================================
+
+static void test_bug50_points_on_cut_segments()
+{
+   const CSG::TriMesh clay = loadMesh("bugs/bug50_clay.obj");
+   const CSG::TriMesh knife = loadMesh("bugs/bug50_knife.obj");
+
+   for (bool cap : {false, true})
+   {
+      CSG::TriMesh A, B;
+      construct(clay, knife, cap, A, B);   // used to exit(1) or crash
+      for (const CSG::TriMesh* m : {&A, &B})
+         for (const auto& v : m->vertices())
+            ASSERT(std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]));
+      if (!cap)
+         ASSERT_NEAR(analyze(A).area + analyze(B).area, analyze(clay).area, 1e-6);
+   }
+}
+
+
+// ===========================================================================
+// BUG-51: construct() never returned for a soup with cap=true
+// BUG-52: a soup with cap=false gave more area than the clay has
+//
+// Found by tools/fuzz_soup.py --nice (seed 93 trial 285, and seed 92 trial 31).
+// ===========================================================================
+
+static void test_bug51_soup_with_cap_returns()
+{
+   const CSG::TriMesh clay = loadMesh("bugs/bug51_clay.obj");
+   const CSG::TriMesh knife = loadMesh("bugs/bug51_knife.obj");
+   CSG::TriMesh A, B;
+   construct(clay, knife, true, A, B);   // used to hang
+   for (const CSG::TriMesh* m : {&A, &B})
+      for (const auto& v : m->vertices())
+         ASSERT(std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2]));
+}
+
+static void test_bug52_soup_area_is_conserved()
+{
+   const CSG::TriMesh clay = loadMesh("bugs/bug52_clay.obj");
+   const CSG::TriMesh knife = loadMesh("bugs/bug52_knife.obj");
+   CSG::TriMesh A, B;
+   construct(clay, knife, false, A, B);
+   ASSERT_NEAR(analyze(A).area + analyze(B).area, analyze(clay).area, 1e-6);
+}
+
+
+// ===========================================================================
 // BUG-58: the weld radius was an absolute 1e-6, and a face's rotation into 2D had
 // a threshold
 //
@@ -2060,8 +2115,11 @@ int main(int argc, char* argv[])
    runKnownBug("bug45_triangle_failure_is_recovered", "BUG-45", test_bug45_triangle_failure_is_recovered);
    runKnownBug("bug46_boundary_points_stay_inside_the_face", "BUG-46", test_bug46_boundary_points_stay_inside_the_face);
    runKnownBug("bug47_output_has_no_t_junctions", "BUG-47", test_bug47_output_has_no_t_junctions);
-   runKnownBug("bug48_conforming_terminates", "BUG-48", test_bug48_conforming_terminates);
-   runKnownBug("bug49_triangle_does_not_loop", "BUG-49", test_bug49_triangle_does_not_loop, 2);
+   run("bug48_conforming_terminates", test_bug48_conforming_terminates);
+   run("bug49_triangle_does_not_loop", test_bug49_triangle_does_not_loop);
+   run("bug50_points_on_cut_segments", test_bug50_points_on_cut_segments);
+   run("bug51_soup_with_cap_returns", test_bug51_soup_with_cap_returns);
+   run("bug52_soup_area_is_conserved", test_bug52_soup_area_is_conserved);
 
    return summarize();
 }
