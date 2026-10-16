@@ -116,7 +116,8 @@ AABBTree::AABBTree(double skin_thickness, uint32_t numObjects, bool touch_is_ove
     // Initialise the tree.
     root = NULL_NODE;
     nodeCount = 0;
-    nodeCapacity = numObjects;
+    // Always allocate at least one node, so an empty tree is valid
+    nodeCapacity = std::max<uint32_t>(numObjects, 1);
     nodes.resize(nodeCapacity);
 
     // Build a linked list for the list of free nodes.
@@ -439,10 +440,10 @@ std::vector<uint32_t> AABBTree::query(uint32_t index, const AABB& aabb) const
         uint32_t node = stack.back();
         stack.pop_back();
 
+        if (node == NULL_NODE) continue;
+
         // Copy the AABB.
         AABB nodeAABB = nodes[node].aabb;
-
-        if (node == NULL_NODE) continue;
 
 
         // Test for overlap between the AABBs.
@@ -792,6 +793,7 @@ uint32_t AABBTree::balance(uint32_t node)
 
 uint32_t AABBTree::computeHeight() const
 {
+    if (root == NULL_NODE) return 0;
     return computeHeight(root);
 }
 

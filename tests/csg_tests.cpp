@@ -2041,7 +2041,7 @@ int main(int argc, char* argv[])
    run("bug17_weld_does_not_reach_too_far", test_bug17_weld_does_not_reach_too_far);
    run("bug18_knife_misses_clay", test_bug18_knife_misses_clay);
    runKnownBug("bug19_nearly_coplanar_knife", "BUG-19", test_bug19_nearly_coplanar_knife, 2);
-   runKnownBug("bug21_empty_aabb_tree", "BUG-21", test_bug21_empty_aabb_tree);
+   run("bug21_empty_aabb_tree", test_bug21_empty_aabb_tree);
    run("bug21_knife_far_from_clay_does_not_crash", test_bug21_knife_far_from_clay_does_not_crash);
    runKnownBug("bug27_coplanar_knife_is_watertight", "BUG-27", test_bug27_coplanar_knife_is_watertight, 2);
    runKnownBug("bug27_coplanar_opposite_orientation", "BUG-27", test_bug27_coplanar_opposite_orientation);

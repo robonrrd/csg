@@ -1660,10 +1660,29 @@ TriMesh CSGEngine::mergeWithCap(const TriMesh& exterior, const TriMesh& cap,
 
 void CSGEngine::construct(CSGOperation operation, bool cap, TriMesh& out_A, TriMesh& out_B)
 {
+   // Check the input meshes to see if they have any faces
+   if (m_clay.faces().size() == 0)
+   {
+      std::cerr << "Empty clay mesh. No work will be done." << std::endl;
+      out_A = TriMesh();
+      out_B = TriMesh();
+      return;
+   }
+   if (m_knife.faces().size() == 0)
+   {
+      std::cerr << "Empty knife mesh. No work will be done." << std::endl;
+      // Nothing cuts the clay, so it is all left in one piece
+      out_A = m_clay;
+      out_B = TriMesh();
+      return;
+   }
+
    computeWeldTolerance();
 
    // Create and intersect AABB trees
    std::unordered_set<std::pair<uint32_t, uint32_t>> ix = intersectAABBs(m_clay, m_knife);
+   // If there are no collisions nothing is cut; the pipeline below still classifies
+   // the whole (uncut) clay against the nearest part of the knife.
 
    // Calculate actual triangle intersections, with intersection data
 
